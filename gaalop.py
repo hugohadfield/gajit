@@ -1,5 +1,6 @@
 
 USE_NUMBA = False
+NTESTS = 10000
 
 if USE_NUMBA == False:
     import os
@@ -223,15 +224,19 @@ if __name__ == '__main__':
         C[31] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[30] + (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[29])) + (Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[28] + (-((Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * Ptemp[27])) + (Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * Ptemp[26]; # e1 ^ (e2 ^ (e3 ^ (einf ^ e0)))
         return gaalop_map@C 
 
+    @numba.njit
+    def native_reflect(P_val,L_val):
+        return gmt_func(gmt_func(P_val,L_val),P_val)
+
     print('\n\nSTARTINGTEST\n')
     P1 = layout.randomMV()(4)
     L1 = layout.randomMV()(3)
     import time
     start_time = time.time()
-    for i in range(100000):
+    for i in range(NTESTS):
         C = gaalop(P1.value,L1.value)
     print('gaalop time: ', time.time() - start_time)
     start_time = time.time()
-    for i in range(100000):
-        C = layout.gmt_func(layout.gmt_func(P1.value,L1.value),P1.value)
+    for i in range(NTESTS):
+        C =native_reflect(P1.value,L1.value)
     print('native time: ', time.time() - start_time)
