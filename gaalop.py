@@ -1,7 +1,13 @@
+
+USE_NUMBA = False
+
+if USE_NUMBA == False:
+    import os
+    os.environ['NUMBA_DISABLE_JIT'] = '1'
+
 from clifford.g3c import *
 import numpy as np
 import re
-
 
 gaalop_list = [1+0*e1,
 e1,
@@ -148,6 +154,8 @@ def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop')
 
 if __name__ == '__main__':
 
+    import numba
+
     fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
     twovectormask = np.abs((layout.randomMV()(2).value)) > 0
     threevectormask = np.abs((layout.randomMV()(3).value)) > 0
@@ -183,7 +191,7 @@ if __name__ == '__main__':
     C[31] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P_30 + (-(((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P_29)) + (P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P_28 + (-((P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P[27])) + (P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P[26]; // e1 ^ (e2 ^ (e3 ^ (einf ^ e0)))"""
     print(process_output_body(output_text,inputs=['P','L'],outputs=['C']))
 
-
+    @numba.njit
     def gaalop(P,L):
         C= np.zeros(32)
         Ltemp= np.zeros(32)
@@ -225,6 +233,5 @@ if __name__ == '__main__':
     print('gaalop time: ', time.time() - start_time)
     start_time = time.time()
     for i in range(100000):
-        C = layout.gmt_func(layout.gmt_func(P1.value,L1.value)P1.value)
+        C = layout.gmt_func(layout.gmt_func(P1.value,L1.value),P1.value)
     print('native time: ', time.time() - start_time)
-    
