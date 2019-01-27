@@ -1,6 +1,6 @@
 
-USE_NUMBA = False
-NTESTS = 10000
+USE_NUMBA = True
+NTESTS = 10000000
 
 if USE_NUMBA == False:
     import os
@@ -57,7 +57,7 @@ def convert_gaalop_vector(gv):
 
 def convert_clifford_to_gaalop(mv):
     """
-    This function takes a MultiVector and converts it into an array in the GAALOP 
+    This function takes a MultiVector and converts it into an array in the GAALOP
     standard ordering
     """
     return inverse_gaalop_map@mv.value
@@ -115,7 +115,7 @@ def define_gaalop_function(inputs=[],blade_mask_list=None,outputs=[],body=''):
     total_string += input_string
     total_string += body
     output_string  = ''
-    for o in outputs: 
+    for o in outputs:
         output_string += '?'+o+';'+'\n'
     total_string += output_string
     return total_string
@@ -133,7 +133,7 @@ def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop')
             pattern = input_name+'_'+str(32-j)
             replacement = input_name+'['+str(32-j)+']'
             final_text = final_text.replace(pattern, replacement)
-    final_text = final_text + '\nreturn ' 
+    final_text = final_text + '\nreturn '
     n = 0
     for o in outputs:
         final_text = o + '= np.zeros(32)\n' + final_text
@@ -197,7 +197,7 @@ if __name__ == '__main__':
         C= np.zeros(32)
         Ltemp= np.zeros(32)
         Ptemp= np.zeros(32)
-        
+
         Ptemp[26] = P[26] / 2.0 + P[27] / 2.0; # e1 ^ (e2 ^ (e3 ^ einf))
         Ptemp[27] = (-P[26]) + P[27]; # e1 ^ (e2 ^ (e3 ^ e0))
         Ltemp[17] = L[17] / 2.0 + L[18] / 2.0; # e1 ^ (e2 ^ einf)
@@ -222,8 +222,8 @@ if __name__ == '__main__':
         C[24] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[28] + (-((Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[30])) + (P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * P[29] + (-((Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * Ptemp[27])) + ((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * Ptemp[26]; # e2 ^ (einf ^ e0)
         C[25] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[29] + ((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[30] + (-((P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * P[28])) + ((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * Ptemp[27] + (-((Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * Ptemp[26])); # e3 ^ (einf ^ e0)
         C[31] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[30] + (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[29])) + (Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[28] + (-((Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * Ptemp[27])) + (Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * Ptemp[26]; # e1 ^ (e2 ^ (e3 ^ (einf ^ e0)))
-        return gaalop_map@C 
-
+        return gaalop_map@C
+    gmt_func = layout.gmt_func
     @numba.njit
     def native_reflect(P_val,L_val):
         return gmt_func(gmt_func(P_val,L_val),P_val)
