@@ -1,4 +1,7 @@
 
+import os
+os.environ['NUMBA_DISABLE_PARALLEL'] = '1'
+
 USE_NUMBA = True
 NTESTS = 10000000
 
@@ -6,9 +9,67 @@ if USE_NUMBA == False:
     import os
     os.environ['NUMBA_DISABLE_JIT'] = '1'
 
+from clifford.tools.g3c import *
 from clifford.g3c import *
 import numpy as np
 import re
+import time
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def activate_gaalop(gaalop_script):
+    """ 
+    This function should take the CLUSCRIPT and pass it to gaalop over cli
+    It should then activate the gaalop optimisation and return the c code result
+    as a string
+    Currently this is manual as a stopgap measure
+    """
+    print('\n\n')
+    print('COPY AND PASTE THE FOLLOWING CODE INTO GAALOP.')
+    print('\n')
+    print(gaalop_script)
+    print('\n')
+    print('COMPILE THE CODE AND COPY AND PASTE THE RESULTANT C CODE HERE')
+    print('After pasting press Ctrl-D (linux/mac) or Ctrl-Z ( windows ) and hit enter to continue.')
+    contents = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        contents.append(line)
+    c_code_result = '\n'.join(contents)
+    print('\n')
+    print('CODE RECEIVED, CONTINUING')
+    print('\n')
+    return c_code_result
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 gaalop_list = [1+0*e1,
 e1,
@@ -151,92 +212,149 @@ def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop')
     final_signature = final_signature + '):\n'
     final_text = final_signature + final_text
     final_text = final_text.replace('\n', '\n    ')
+    final_text = '@numba.njit\n' + final_text
     return final_text
+
+class Algorithm:
+    def __init__(self, 
+        inputs=[], 
+        blade_mask_list=[], 
+        outputs=[], 
+        body=None,
+        function_name='gaalop_func'):
+
+        self.inputs = inputs
+        self.blade_mask_list = blade_mask_list
+        self.outputs = outputs
+        self.body = body
+        self.function_name = function_name
+
+        self.gaalop_input = None
+        self._compiled = False
+
+    def check_compilable(self):
+        # TODO add some actual checking here to see 
+        # if we have specified enough stuff
+        return True
+
+    def define_gaalop_function(self):
+        """
+        Generates the proper CLUScript code from the input
+        """
+        self.gaalop_input = define_gaalop_function(inputs=self.inputs, 
+            blade_mask_list=self.blade_mask_list, 
+            outputs=self.outputs, 
+            body=self.body)
+        return self.gaalop_input
+
+    def activate_gaalop(self):
+        """
+        Calls gaalop with the CLUScript specified
+        """
+        self.gaalop_output = activate_gaalop(self.gaalop_input)
+        return self.gaalop_output
+
+    def process_gaalop_output(self):
+        """
+        Processes the c output of gaalop to make it into JITable python
+        """
+        self.python_text = process_output_body(self.gaalop_output,
+            inputs=self.inputs,
+            outputs=self.outputs,
+            function_name=self.function_name)
+        return self.python_text
+
+    def process_python_function(self):
+        """
+        Evaluates the python text to generate a function in scope
+        """
+        exec(self.python_text)
+        self.func = locals()[self.function_name]
+        return self.func
+
+    def compile(self, verbose=False):
+        """ 
+        Runs the full compilation pipeline 
+        """
+        if self.check_compilable():
+            if not verbose:
+                self.define_gaalop_function()
+                self.activate_gaalop()
+                self.process_gaalop_output()
+                self.process_python_function()
+                self._compiled = True
+            else:
+                print( self.define_gaalop_function() )
+                print( self.activate_gaalop() )
+                print( self.process_gaalop_output() )
+                print( self.process_python_function() )
+        else:
+            raise ValueError("""The function is not sufficiently defined.
+                Please check that you have specified at least one output and a function body.
+                """)
+
+    def __call__(self, *args):
+        """ 
+        Allows us to use the instance as a function
+        If it has not compiled everything, it does it now
+        """
+        if self._compiled:
+            return self.func(*args)
+        else:
+            self.compile()
+            return self.__call__(*args)
+
 
 if __name__ == '__main__':
 
     import numba
 
-    fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
+    # These are a set of masks we can apply to the input multivectors 
+    # so we dont have to define as many symbols
+    onevectormask = np.abs((layout.randomMV()(1).value)) > 0
     twovectormask = np.abs((layout.randomMV()(2).value)) > 0
     threevectormask = np.abs((layout.randomMV()(3).value)) > 0
-    body="""
-    C=P*L*P;
-    """
-    print(define_gaalop_function(inputs=['P','L'], blade_mask_list=[fourvectormask,threevectormask], outputs=['C'], body=body ))
+    fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
+    fivevectormask = np.abs((e12345).value) > 0
+    
+    test_algo = Algorithm(
+        inputs=['P','S'],
+        blade_mask_list=[onevectormask,fourvectormask],
+        outputs=['C'],
+        body="""
+        C = (P.S)*einf*(P.S);
+        """)
 
-    output_text="""
-    P[26] = P_26 / 2.0 + P_27 / 2.0; // e1 ^ (e2 ^ (e3 ^ einf))
-    P[27] = (-P_26) + P_27; // e1 ^ (e2 ^ (e3 ^ e0))
-    L[17] = L_17 / 2.0 + L_18 / 2.0; // e1 ^ (e2 ^ einf)
-    L[18] = (-L_17) + L_18; // e1 ^ (e2 ^ e0)
-    L[19] = L_19 / 2.0 + L_20 / 2.0; // e1 ^ (e3 ^ einf)
-    L[20] = (-L_19) + L_20; // e1 ^ (e3 ^ e0)
-    L[22] = L_22 / 2.0 + L_23 / 2.0; // e2 ^ (e3 ^ einf)
-    L[23] = (-L_22) + L_23; // e2 ^ (e3 ^ e0)
-    C[1] = (-(((-(P[26] * L_21)) + P_28 * L[19] + (-(P_29 * L[17]))) * P[27])) + (-((P[27] * L_21 + (-(P_28 * L[20])) + P_29 * L[18]) * P[26])) + (-((P[26] * L[20] + (-(P[27] * L[19])) + P_29 * L_16) * P_28)) + (-(((-(P[26] * L[18])) + P[27] * L[17] + (-(P_28 * L_16))) * P_29)); // e1
-    C[2] = (P[26] * L_24 + (-(P_28 * L[22])) + P_30 * L[17]) * P[27] + ((-(P[27] * L_24)) + P_28 * L[23] + (-(P_30 * L[18]))) * P[26] + ((-(P[26] * L[23])) + P[27] * L[22] + (-(P_30 * L_16))) * P_28 + (-(((-(P[26] * L[18])) + P[27] * L[17] + (-(P_28 * L_16))) * P_30)); // e2
-    C[3] = (-(((-(P[26] * L_25)) + P_29 * L[22] + (-(P_30 * L[19]))) * P[27])) + (-((P[27] * L_25 + (-(P_29 * L[23])) + P_30 * L[20]) * P[26])) + ((-(P[26] * L[23])) + P[27] * L[22] + (-(P_30 * L_16))) * P_29 + (P[26] * L[20] + (-(P[27] * L[19])) + P_29 * L_16) * P_30; // e3
-    C[4] = (-((P_28 * L_25 + (-(P_29 * L_24)) + P_30 * L_21) * P[26])) + (-(((-(P[26] * L_25)) + P_29 * L[22] + (-(P_30 * L[19]))) * P_28)) + (-((P[26] * L_24 + (-(P_28 * L[22])) + P_30 * L[17]) * P_29)) + (-(((-(P[26] * L_21)) + P_28 * L[19] + (-(P_29 * L[17]))) * P_30)); // einf
-    C[5] = (-((P_28 * L_25 + (-(P_29 * L_24)) + P_30 * L_21) * P[27])) + (P[27] * L_25 + (-(P_29 * L[23])) + P_30 * L[20]) * P_28 + ((-(P[27] * L_24)) + P_28 * L[23] + (-(P_30 * L[18]))) * P_29 + (P[27] * L_21 + (-(P_28 * L[20])) + P_29 * L[18]) * P_30; // e0
-    C[16] = (P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P[27] + (P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P[26] + ((-(P[26] * L[23])) + P[27] * L[22] + (-(P_30 * L_16))) * P_30 + (-((P[26] * L[20] + (-(P[27] * L[19])) + P_29 * L_16) * P_29)) + ((-(P[26] * L[18])) + P[27] * L[17] + (-(P_28 * L_16))) * P_28; // e1 ^ (e2 ^ e3)
-    C[17] = (P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P[26] + (P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P_28 + (-((P[26] * L_24 + (-(P_28 * L[22])) + P_30 * L[17]) * P_30)) + ((-(P[26] * L_21)) + P_28 * L[19] + (-(P_29 * L[17]))) * P_29 + (-(((-(P[26] * L[18])) + P[27] * L[17] + (-(P_28 * L_16))) * P[26])); // e1 ^ (e2 ^ einf)
-    C[18] = (P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P[27] + (-((P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P_28)) + ((-(P[27] * L_24)) + P_28 * L[23] + (-(P_30 * L[18]))) * P_30 + (-((P[27] * L_21 + (-(P_28 * L[20])) + P_29 * L[18]) * P_29)) + ((-(P[26] * L[18])) + P[27] * L[17] + (-(P_28 * L_16))) * P[27]; // e1 ^ (e2 ^ e0)
-    C[19] = (-(((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P[26])) + (P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P_29 + ((-(P[26] * L_25)) + P_29 * L[22] + (-(P_30 * L[19]))) * P_30 + (-(((-(P[26] * L_21)) + P_28 * L[19] + (-(P_29 * L[17]))) * P_28)) + (P[26] * L[20] + (-(P[27] * L[19])) + P_29 * L_16) * P[26]; // e1 ^ (e3 ^ einf)
-    C[20] = (-(((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P[27])) + (-((P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P_29)) + (-((P[27] * L_25 + (-(P_29 * L[23])) + P_30 * L[20]) * P_30)) + (P[27] * L_21 + (-(P_28 * L[20])) + P_29 * L[18]) * P_28 + (-((P[26] * L[20] + (-(P[27] * L[19])) + P_29 * L_16) * P[27])); // e1 ^ (e3 ^ e0)
-    C[21] = (-(((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P_28)) + (-((P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P_29)) + (-((P_28 * L_25 + (-(P_29 * L_24)) + P_30 * L_21) * P_30)) + ((-(P[26] * L_21)) + P_28 * L[19] + (-(P_29 * L[17]))) * P[27] + (-((P[27] * L_21 + (-(P_28 * L[20])) + P_29 * L[18]) * P[26])); // e1 ^ (einf ^ e0)
-    C[22] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P[26] + (P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P_30 + (-(((-(P[26] * L_25)) + P_29 * L[22] + (-(P_30 * L[19]))) * P_29)) + (P[26] * L_24 + (-(P_28 * L[22])) + P_30 * L[17]) * P_28 + (-(((-(P[26] * L[23])) + P[27] * L[22] + (-(P_30 * L_16))) * P[26])); // e2 ^ (e3 ^ einf)
-    C[23] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P[27] + (-((P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P_30)) + (P[27] * L_25 + (-(P_29 * L[23])) + P_30 * L[20]) * P_29 + (-(((-(P[27] * L_24)) + P_28 * L[23] + (-(P_30 * L[18]))) * P_28)) + ((-(P[26] * L[23])) + P[27] * L[22] + (-(P_30 * L_16))) * P[27]; // e2 ^ (e3 ^ e0)
-    C[24] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P_28 + (-((P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P_30)) + (P_28 * L_25 + (-(P_29 * L_24)) + P_30 * L_21) * P_29 + (-((P[26] * L_24 + (-(P_28 * L[22])) + P_30 * L[17]) * P[27])) + ((-(P[27] * L_24)) + P_28 * L[23] + (-(P_30 * L[18]))) * P[26]; // e2 ^ (einf ^ e0)
-    C[25] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P_29 + ((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P_30 + (-((P_28 * L_25 + (-(P_29 * L_24)) + P_30 * L_21) * P_28)) + ((-(P[26] * L_25)) + P_29 * L[22] + (-(P_30 * L[19]))) * P[27] + (-((P[27] * L_25 + (-(P_29 * L[23])) + P_30 * L[20]) * P[26])); // e3 ^ (einf ^ e0)
-    C[31] = (P[26] * L[23] + P[27] * L[22] + P_28 * L_24 + P_29 * L_25) * P_30 + (-(((-(P[26] * L[20])) + (-(P[27] * L[19])) + (-(P_28 * L_21)) + P_30 * L_25) * P_29)) + (P[26] * L[18] + P[27] * L[17] + (-(P_29 * L_21)) + (-(P_30 * L_24))) * P_28 + (-((P[26] * L_16 + P_28 * L[17] + P_29 * L[19] + P_30 * L[22]) * P[27])) + (P[27] * L_16 + (-(P_28 * L[18])) + (-(P_29 * L[20])) + (-(P_30 * L[23]))) * P[26]; // e1 ^ (e2 ^ (e3 ^ (einf ^ e0)))"""
-    print(process_output_body(output_text,inputs=['P','L'],outputs=['C']))
+    P = random_conformal_point()
+    S = random_sphere()
+
+    res_val = test_algo(P.value, S.value)
+    C = layout.MultiVector(value=res_val)
+    print( C )
+
+    def traditional_algo():
+        L = (P|S)
+        return L*einf*L
 
     @numba.njit
-    def gaalop(P,L):
-        C= np.zeros(32)
-        Ltemp= np.zeros(32)
-        Ptemp= np.zeros(32)
+    def traditional_algo_fast(P_val,S_val):
+        L = imt_func(P_val,S_val)
+        return gmt_func(gmt_func(L,ninf_val),L)
 
-        Ptemp[26] = P[26] / 2.0 + P[27] / 2.0; # e1 ^ (e2 ^ (e3 ^ einf))
-        Ptemp[27] = (-P[26]) + P[27]; # e1 ^ (e2 ^ (e3 ^ e0))
-        Ltemp[17] = L[17] / 2.0 + L[18] / 2.0; # e1 ^ (e2 ^ einf)
-        Ltemp[18] = (-L[17]) + L[18]; # e1 ^ (e2 ^ e0)
-        Ltemp[19] = L[19] / 2.0 + L[20] / 2.0; # e1 ^ (e3 ^ einf)
-        Ltemp[20] = (-L[19]) + L[20]; # e1 ^ (e3 ^ e0)
-        Ltemp[22] = L[22] / 2.0 + L[23] / 2.0; # e2 ^ (e3 ^ einf)
-        Ltemp[23] = (-L[22]) + L[23]; # e2 ^ (e3 ^ e0)
-        C[1] = (-(((-(Ptemp[26] * L[21])) + P[28] * Ltemp[19] + (-(P[29] * Ltemp[17]))) * Ptemp[27])) + (-((Ptemp[27] * L[21] + (-(P[28] * Ltemp[20])) + P[29] * Ltemp[18]) * Ptemp[26])) + (-((Ptemp[26] * Ltemp[20] + (-(Ptemp[27] * Ltemp[19])) + P[29] * L[16]) * P[28])) + (-(((-(Ptemp[26] * Ltemp[18])) + Ptemp[27] * Ltemp[17] + (-(P[28] * L[16]))) * P[29])); # e1
-        C[2] = (Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * Ptemp[27] + ((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * Ptemp[26] + ((-(Ptemp[26] * Ltemp[23])) + Ptemp[27] * Ltemp[22] + (-(P[30] * L[16]))) * P[28] + (-(((-(Ptemp[26] * Ltemp[18])) + Ptemp[27] * Ltemp[17] + (-(P[28] * L[16]))) * P[30])); # e2
-        C[3] = (-(((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * Ptemp[27])) + (-((Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * Ptemp[26])) + ((-(Ptemp[26] * Ltemp[23])) + Ptemp[27] * Ltemp[22] + (-(P[30] * L[16]))) * P[29] + (Ptemp[26] * Ltemp[20] + (-(Ptemp[27] * Ltemp[19])) + P[29] * L[16]) * P[30]; # e3
-        C[4] = (-((P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * Ptemp[26])) + (-(((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * P[28])) + (-((Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * P[29])) + (-(((-(Ptemp[26] * L[21])) + P[28] * Ltemp[19] + (-(P[29] * Ltemp[17]))) * P[30])); # einf
-        C[5] = (-((P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * Ptemp[27])) + (Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * P[28] + ((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * P[29] + (Ptemp[27] * L[21] + (-(P[28] * Ltemp[20])) + P[29] * Ltemp[18]) * P[30]; # e0
-        C[16] = (Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * Ptemp[27] + (Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * Ptemp[26] + ((-(Ptemp[26] * Ltemp[23])) + Ptemp[27] * Ltemp[22] + (-(P[30] * L[16]))) * P[30] + (-((Ptemp[26] * Ltemp[20] + (-(Ptemp[27] * Ltemp[19])) + P[29] * L[16]) * P[29])) + ((-(Ptemp[26] * Ltemp[18])) + Ptemp[27] * Ltemp[17] + (-(P[28] * L[16]))) * P[28]; # e1 ^ (e2 ^ e3)
-        C[17] = (Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * Ptemp[26] + (Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * P[28] + (-((Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * P[30])) + ((-(Ptemp[26] * L[21])) + P[28] * Ltemp[19] + (-(P[29] * Ltemp[17]))) * P[29] + (-(((-(Ptemp[26] * Ltemp[18])) + Ptemp[27] * Ltemp[17] + (-(P[28] * L[16]))) * Ptemp[26])); # e1 ^ (e2 ^ einf)
-        C[18] = (Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * Ptemp[27] + (-((Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * P[28])) + ((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * P[30] + (-((Ptemp[27] * L[21] + (-(P[28] * Ltemp[20])) + P[29] * Ltemp[18]) * P[29])) + ((-(Ptemp[26] * Ltemp[18])) + Ptemp[27] * Ltemp[17] + (-(P[28] * L[16]))) * Ptemp[27]; # e1 ^ (e2 ^ e0)
-        C[19] = (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * Ptemp[26])) + (Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * P[29] + ((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * P[30] + (-(((-(Ptemp[26] * L[21])) + P[28] * Ltemp[19] + (-(P[29] * Ltemp[17]))) * P[28])) + (Ptemp[26] * Ltemp[20] + (-(Ptemp[27] * Ltemp[19])) + P[29] * L[16]) * Ptemp[26]; # e1 ^ (e3 ^ einf)
-        C[20] = (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * Ptemp[27])) + (-((Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * P[29])) + (-((Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * P[30])) + (Ptemp[27] * L[21] + (-(P[28] * Ltemp[20])) + P[29] * Ltemp[18]) * P[28] + (-((Ptemp[26] * Ltemp[20] + (-(Ptemp[27] * Ltemp[19])) + P[29] * L[16]) * Ptemp[27])); # e1 ^ (e3 ^ e0)
-        C[21] = (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[28])) + (-((Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[29])) + (-((P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * P[30])) + ((-(Ptemp[26] * L[21])) + P[28] * Ltemp[19] + (-(P[29] * Ltemp[17]))) * Ptemp[27] + (-((Ptemp[27] * L[21] + (-(P[28] * Ltemp[20])) + P[29] * Ltemp[18]) * Ptemp[26])); # e1 ^ (einf ^ e0)
-        C[22] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * Ptemp[26] + (Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * P[30] + (-(((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * P[29])) + (Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * P[28] + (-(((-(Ptemp[26] * Ltemp[23])) + Ptemp[27] * Ltemp[22] + (-(P[30] * L[16]))) * Ptemp[26])); # e2 ^ (e3 ^ einf)
-        C[23] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * Ptemp[27] + (-((Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * P[30])) + (Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * P[29] + (-(((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * P[28])) + ((-(Ptemp[26] * Ltemp[23])) + Ptemp[27] * Ltemp[22] + (-(P[30] * L[16]))) * Ptemp[27]; # e2 ^ (e3 ^ e0)
-        C[24] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[28] + (-((Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[30])) + (P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * P[29] + (-((Ptemp[26] * L[24] + (-(P[28] * Ltemp[22])) + P[30] * Ltemp[17]) * Ptemp[27])) + ((-(Ptemp[27] * L[24])) + P[28] * Ltemp[23] + (-(P[30] * Ltemp[18]))) * Ptemp[26]; # e2 ^ (einf ^ e0)
-        C[25] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[29] + ((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[30] + (-((P[28] * L[25] + (-(P[29] * L[24])) + P[30] * L[21]) * P[28])) + ((-(Ptemp[26] * L[25])) + P[29] * Ltemp[22] + (-(P[30] * Ltemp[19]))) * Ptemp[27] + (-((Ptemp[27] * L[25] + (-(P[29] * Ltemp[23])) + P[30] * Ltemp[20]) * Ptemp[26])); # e3 ^ (einf ^ e0)
-        C[31] = (Ptemp[26] * Ltemp[23] + Ptemp[27] * Ltemp[22] + P[28] * L[24] + P[29] * L[25]) * P[30] + (-(((-(Ptemp[26] * Ltemp[20])) + (-(Ptemp[27] * Ltemp[19])) + (-(P[28] * L[21])) + P[30] * L[25]) * P[29])) + (Ptemp[26] * Ltemp[18] + Ptemp[27] * Ltemp[17] + (-(P[29] * L[21])) + (-(P[30] * L[24]))) * P[28] + (-((Ptemp[26] * L[16] + P[28] * Ltemp[17] + P[29] * Ltemp[19] + P[30] * Ltemp[22]) * Ptemp[27])) + (Ptemp[27] * L[16] + (-(P[28] * Ltemp[18])) + (-(P[29] * Ltemp[20])) + (-(P[30] * Ltemp[23]))) * Ptemp[26]; # e1 ^ (e2 ^ (e3 ^ (einf ^ e0)))
-        return gaalop_map@C
-    gmt_func = layout.gmt_func
-    @numba.njit
-    def native_reflect(P_val,L_val):
-        return gmt_func(gmt_func(P_val,L_val),P_val)
+    print( traditional_algo() )
+    print( layout.MultiVector(value=traditional_algo_fast(P.value, S.value) ))
 
-    print('\n\nSTARTINGTEST\n')
-    P1 = layout.randomMV()(4)
-    L1 = layout.randomMV()(3)
-    import time
     start_time = time.time()
-    for i in range(NTESTS):
-        C = gaalop(P1.value,L1.value)
-    print('gaalop time: ', time.time() - start_time)
+    for i in range(10000):
+        test_algo(P.value, S.value)
+    t_gaalop = time.time() - start_time
+    print('GAALOP ALGO: ', t_gaalop)
+
     start_time = time.time()
-    for i in range(NTESTS):
-        C =native_reflect(P1.value,L1.value)
-    print('native time: ', time.time() - start_time)
+    for i in range(10000):
+        traditional_algo_fast(P.value, S.value)
+    t_trad = time.time() - start_time
+    print('TRADITIONAL: ', t_trad)
+
+    print('T/G: ', t_trad/t_gaalop)
+
