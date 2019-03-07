@@ -3,7 +3,6 @@ import os
 os.environ['NUMBA_DISABLE_PARALLEL'] = '1'
 
 USE_NUMBA = True
-NTESTS = 10000000
 
 if USE_NUMBA == False:
     import os
@@ -14,8 +13,7 @@ from clifford.g3c import *
 import numpy as np
 import re
 import time
-
-
+import numba
 
 
 
@@ -215,7 +213,27 @@ def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop')
     final_text = '@numba.njit\n' + final_text
     return final_text
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class Algorithm:
+    """
+    This class provides the ability to interface easily with gaalop
+
+    """
     def __init__(self, 
         inputs=[], 
         blade_mask_list=[], 
@@ -299,15 +317,44 @@ class Algorithm:
         If it has not compiled everything, it does it now
         """
         if self._compiled:
-            return self.func(*args)
+            if len(self.outputs) > 1:
+                return [layout.MultiVector(value=a) for a in self.func(*args)]
+            else:
+                return self.func(*args)
         else:
             self.compile()
             return self.__call__(*args)
 
 
-if __name__ == '__main__':
 
-    import numba
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
 
     # These are a set of masks we can apply to the input multivectors 
     # so we dont have to define as many symbols
@@ -316,6 +363,16 @@ if __name__ == '__main__':
     threevectormask = np.abs((layout.randomMV()(3).value)) > 0
     fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
     fivevectormask = np.abs((e12345).value) > 0
+
+
+    def traditional_algo():
+        L = (P|S)
+        return L*einf*L
+
+    @numba.njit
+    def traditional_algo_fast(P_val,S_val):
+        L = imt_func(P_val,S_val)
+        return gmt_func(gmt_func(L,ninf_val),L)
     
     test_algo = Algorithm(
         inputs=['P','S'],
@@ -332,21 +389,16 @@ if __name__ == '__main__':
     C = layout.MultiVector(value=res_val)
     print( C )
 
-    def traditional_algo():
-        L = (P|S)
-        return L*einf*L
+    
 
-    @numba.njit
-    def traditional_algo_fast(P_val,S_val):
-        L = imt_func(P_val,S_val)
-        return gmt_func(gmt_func(L,ninf_val),L)
 
+    # Ensure that the f
     print( traditional_algo() )
     print( layout.MultiVector(value=traditional_algo_fast(P.value, S.value) ))
 
     start_time = time.time()
     for i in range(10000):
-        test_algo(P.value, S.value)
+        test_algo.func(P.value, S.value)
     t_gaalop = time.time() - start_time
     print('GAALOP ALGO: ', t_gaalop)
 
