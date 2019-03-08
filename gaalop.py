@@ -21,19 +21,45 @@ import numba
 
 
 
-
-
-
-
-
-
-
 def activate_gaalop(gaalop_script):
-    """ 
+    """
     This function should take the CLUSCRIPT and pass it to gaalop over cli
     It should then activate the gaalop optimisation and return the c code result
     as a string
-    Currently this is manual as a stopgap measure
+    """
+    return activate_gaalop_manual_via_files(gaalop_script)
+
+
+
+def activate_gaalop_manual_via_files(gaalop_script):
+    """
+    This initiates the manual gaalop process via files
+    """
+    # Write the gaalop script to the local directory
+    with open('gaalop_script.clu', 'w') as fobj:
+        print(gaalop_script,file=fobj)
+    print('\n\n')
+    print('OPEN GAALOP AND LOAD THE FILE gaalop_script.clu FROM THIS DIRECTORY')
+    print('OPTIMISE THE CODE AND SAVE THE C CODE IN THiS DIRECTORY AS gaalop_script.c')
+    print('Press Ctrl-D (linux/mac) or Ctrl-Z ( windows ) and hit enter to continue once this is done.')
+    print('\n')
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+    # Load the file
+    with open('gaalop_script.c', 'r') as fobj:
+        c_code_result = fobj.read()
+    print('\n')
+    print('gaalop_script.c FOUND, CONTINUING')
+    print('\n')
+    return c_code_result
+
+
+def activate_gaalop_manual(gaalop_script):
+    """ 
+    This initiates the manual gaalop process
     """
     print('\n\n')
     print('COPY AND PASTE THE FOLLOWING CODE INTO GAALOP.')
@@ -181,8 +207,16 @@ def define_gaalop_function(inputs=[],blade_mask_list=None,outputs=[],body=''):
 
 
 def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop'):
+    # Remove tabs
     final_text =  re.sub(r"[\t]","",output_text)
+    # Try and find the first curly brakcet
+    if '{' in final_text.split('\n', 1)[0]:
+        final_text = final_text.split('\n',1)[1];
+    # Remove the final } if it is there
+    final_text =  re.sub('}',"",final_text)
+    # Reformat comments
     final_text = final_text.replace('//', '#')
+    # Start the advanced processing
     for input_name in inputs:
         pattern = input_name+'['
         temp_val = input_name+'temp'
