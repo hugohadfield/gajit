@@ -15,7 +15,7 @@ import re
 import time
 import numba
 
-
+e0 = eo
 
 
 
