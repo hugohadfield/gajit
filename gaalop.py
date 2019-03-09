@@ -188,7 +188,7 @@ def map_multivector(mv_name='X',blade_mask=np.ones(32)):
     return mv_name+' = ' +mapping_function+';'+'\n'
 
 
-def define_gaalop_function(inputs=[],blade_mask_list=None,outputs=[],body=''):
+def define_gaalop_function(inputs=[],blade_mask_list=None,outputs=[],intermediates=[],body=''):
     total_string = ''
     input_string = ''
     for i,input_name in enumerate(inputs):
@@ -206,7 +206,7 @@ def define_gaalop_function(inputs=[],blade_mask_list=None,outputs=[],body=''):
     return total_string
 
 
-def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop'):
+def process_output_body(output_text,inputs=[],outputs=[],intermediates=[],function_name='gaalop'):
     # Remove tabs
     final_text =  re.sub(r"[\t]","",output_text)
     # Try and find the first curly brakcet
@@ -235,6 +235,8 @@ def process_output_body(output_text,inputs=[],outputs=[],function_name='gaalop')
         else:
             final_text = final_text + 'gaalop_map@'+o + ' '
         n = n + 1
+    for o in intermediates:
+        final_text = o + '= np.zeros(32)\n' + final_text
     final_signature = 'def '+ function_name+'('
     for i,input_name in enumerate(inputs):
         if i == 0:
@@ -272,12 +274,14 @@ class Algorithm:
         inputs=[], 
         blade_mask_list=[], 
         outputs=[], 
+        intermediates=[],
         body=None,
         function_name='gaalop_func'):
 
         self.inputs = inputs
         self.blade_mask_list = blade_mask_list
         self.outputs = outputs
+        self.intermediates = intermediates
         self.body = body
         self.function_name = function_name
 
@@ -296,6 +300,7 @@ class Algorithm:
         self.gaalop_input = define_gaalop_function(inputs=self.inputs, 
             blade_mask_list=self.blade_mask_list, 
             outputs=self.outputs, 
+            intermediates=self.intermediates,
             body=self.body)
         return self.gaalop_input
 
@@ -313,6 +318,7 @@ class Algorithm:
         self.python_text = process_output_body(self.gaalop_output,
             inputs=self.inputs,
             outputs=self.outputs,
+            intermediates=self.intermediates,
             function_name=self.function_name)
         return self.python_text
 
@@ -398,7 +404,6 @@ if __name__ == '__main__':
     fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
     fivevectormask = np.abs((e12345).value) > 0
 
-
     def traditional_algo():
         L = (P|S)
         return L*einf*L
@@ -407,40 +412,89 @@ if __name__ == '__main__':
     def traditional_algo_fast(P_val,S_val):
         L = imt_func(P_val,S_val)
         return gmt_func(gmt_func(L,ninf_val),L)
-    
+
     test_algo = Algorithm(
         inputs=['P','S'],
         blade_mask_list=[onevectormask,fourvectormask],
         outputs=['C'],
+        intermediates=['L'],
         body="""
-        C = (P.S)*einf*(P.S);
+        L = (P.S)
+        C = L*einf*L;
+        """)
+
+    def traditional_algo_2(P, C):
+        Cplane = C^einf;
+        Cd = C*(Cplane);
+        L = (Cplane*P*Cplane)^Cd^einf;
+        pp = Cd^(L*e12345);
+        return pp
+
+    def traditional_algo_2_fast(Pval, Cval):
+        Cplane = omt_func(Cval,ninf_val)
+        Cd = gmt_func(Cval,(Cplane))
+        L = omt_func(omt_func(gmt_func(gmt_func(Cplane,Pval),Cplane),Cd),ninf_val)
+        pp = omt_func(Cd,(dual_func(L)))
+        return pp
+
+    test_algo_2 = Algorithm(
+        inputs=['P','C'],
+        blade_mask_list=[onevectormask,threevectormask],
+        outputs=['pp'],
+        intermediates=['L','Cplane','Cd'],
+        body="""
+        Cplane = C^einf;
+        Cd = C*(Cplane);
+        L = (Cplane*P*Cplane)^Cd^einf;
+        pp = Cd^(L*(e1^e2^e3^einf^e0));
         """)
 
     P = random_conformal_point()
     S = random_sphere()
+    C = random_circle()
 
-    res_val = test_algo(P.value, S.value)
-    C = layout.MultiVector(value=res_val)
-    print( C )
+    # Ensure that the aswers are the same
 
-    
+    # res_val = test_algo(P.value, S.value)
+    # res_mv = layout.MultiVector(value=res_val)
+    # print( res_mv )
+
+    # print( traditional_algo() )
+    # print( layout.MultiVector(value=traditional_algo_fast(P.value, S.value) ))
+
+    # start_time = time.time()
+    # for i in range(10000):
+    #     test_algo.func(P.value, S.value)
+    # t_gaalop = time.time() - start_time
+    # print('GAALOP ALGO 1: ', t_gaalop)
+
+    # start_time = time.time()
+    # for i in range(10000):
+    #     traditional_algo_fast(P.value, S.value)
+    # t_trad = time.time() - start_time
+    # print('TRADITIONAL 1: ', t_trad)
+
+    # print('T/G: ', t_trad/t_gaalop)
 
 
-    # Ensure that the f
-    print( traditional_algo() )
-    print( layout.MultiVector(value=traditional_algo_fast(P.value, S.value) ))
+    test_algo_2.compile()
+
+    pptrad = traditional_algo_2(P,C)*I5
+    ppgaalop = layout.MultiVector(value=test_algo_2(P.value,C.value))*I5
+    print( point_pair_to_end_points(pptrad) )
+    print( point_pair_to_end_points(ppgaalop) )
+    print(point_pair_to_end_points(layout.MultiVector(value=traditional_algo_2_fast(P.value,C.value))*I5))
 
     start_time = time.time()
     for i in range(10000):
-        test_algo.func(P.value, S.value)
+        test_algo_2.func(P.value, S.value)
     t_gaalop = time.time() - start_time
-    print('GAALOP ALGO: ', t_gaalop)
+    print('GAALOP ALGO 2: ', t_gaalop)
 
     start_time = time.time()
     for i in range(10000):
-        traditional_algo_fast(P.value, S.value)
+        traditional_algo_2_fast(P.value, S.value)
     t_trad = time.time() - start_time
-    print('TRADITIONAL: ', t_trad)
+    print('TRADITIONAL 2: ', t_trad)
 
     print('T/G: ', t_trad/t_gaalop)
-
