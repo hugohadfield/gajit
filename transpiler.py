@@ -1,8 +1,13 @@
 
-from gaalop import Algorithm
+from gaalop import Algorithm, GradeMasks
+import inspect
 
-symbols_py2g = {'|':'.'}
+symbols_py2g = {'|':'.',
+                'e12345':'(e1^e2^e3^einf^e0)',
+                'e123':'(e1^e2^e3)'
+                }
 symbols_g2py = {v: k for k, v in symbols_py2g.items()}
+
 
 def py2gaalop(python_script):
     """ 
@@ -27,7 +32,19 @@ def py2gaalop(python_script):
     inputs = [a.strip() for a in argument_string.split(',')]
 
     # Run the conversion
-    gaalop_script = cleaned_script
+    gaalop_script = cleaned_script.strip()
+    for k,v in symbols_py2g.items():
+        gaalop_script = gaalop_script.replace(k,v)
+
+    # Assert that all lines are terminated with semi colons
+    content = []
+    for line in gaalop_script.split('\n'):
+        l = line.strip()
+        if l[-1] != ';':
+            content.append(l+';')
+        else:
+            content.append(l)
+    gaalop_script = '\n'.join(content)
 
     # Extract the intermediates
     intermediates = [ ]
@@ -40,17 +57,63 @@ def py2gaalop(python_script):
     return gaalop_script, inputs, outputs, intermediates, function_name
 
 
-test_string ="""
-def test_func(A,B,C):
-    D = A + B
-    T = (B|C)
-    E = T^einf
-    F = A*((C^e0)^einf)
-    return D,E,F
-"""
-gaalop_script, inputs, outputs, intermediates, function_name = py2gaalop(test_string)
-print(gaalop_script)
-print(inputs)
-print(outputs)
-print(intermediates)
-print(function_name)
+def py2Algorithm(python_function,mask_list=None):
+    gaalop_script, inputs, outputs, intermediates, function_name = py2gaalop(python_function)
+    return Algorithm(
+        body=gaalop_script,
+        inputs=inputs,
+        outputs=outputs,
+        blade_mask_list=mask_list,
+        function_name=function_name,
+        intermediates=intermediates)
+
+
+def gaalop(mask_list=None, verbose=0):
+    def gaalop_wrapper(func):
+        python_function = inspect.getsource(func)
+        algo = py2Algorithm(python_function, mask_list=mask_list)
+        algo.compile(verbose=verbose)
+        return algo
+    return gaalop_wrapper
+
+@gaalop(mask_list=[GradeMasks.onevectormask.value,GradeMasks.threevectormask.value],verbose=1)
+def pp_algo_wrapped(P, C):
+    Cplane = C^einf
+    Cd = C*(Cplane)
+    L = (Cplane*P*Cplane)^Cd^einf
+    pp = Cd^(L*e12345)
+    return pp
+
+def pp_algo(P, C):
+    Cplane = C^einf
+    Cd = C*(Cplane)
+    L = (Cplane*P*Cplane)^Cd^einf
+    pp = Cd^(L*e12345)
+    return pp
+
+
+
+
+from clifford.tools.g3c import *
+from clifford.g3c import *
+import time
+
+P = random_conformal_point()
+C = random_circle()
+
+print(pp_algo(P,C))
+print(pp_algo_wrapped(P,C))
+
+start_time = time.time()
+for i in range(10000):
+    pp_algo_wrapped(P,C)
+t_gaalop = time.time() - start_time
+print('GAALOP ALGO 2: ', t_gaalop)
+
+start_time = time.time()
+for i in range(10000):
+    pp_algo(P,C)
+t_trad = time.time() - start_time
+print('TRADITIONAL 2: ', t_trad)
+
+print('T/G: ', t_trad/t_gaalop)

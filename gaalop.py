@@ -222,7 +222,7 @@ def process_output_body(output_text,inputs=[],outputs=[],intermediates=[],functi
         temp_val = input_name+'temp'
         final_text = temp_val + '= np.zeros(32)\n' + final_text
         final_text = final_text.replace(pattern, temp_val+'[')
-        for j in range(32):
+        for j in range(33):
             pattern = input_name+'_'+str(32-j)
             replacement = input_name+'['+str(32-j)+']'
             final_text = final_text.replace(pattern, replacement)
@@ -330,22 +330,38 @@ class Algorithm:
         self.func = locals()[self.function_name]
         return self.func
 
-    def compile(self, verbose=False):
+    def compile(self, verbose=0):
         """ 
         Runs the full compilation pipeline 
         """
         if self.check_compilable():
-            if not verbose:
-                self.define_gaalop_function()
-                self.activate_gaalop()
-                self.process_gaalop_output()
-                self.process_python_function()
-                self._compiled = True
-            else:
-                print( self.define_gaalop_function() )
-                print( self.activate_gaalop() )
-                print( self.process_gaalop_output() )
-                print( self.process_python_function() )
+            if verbose >= 1:
+                print('Running gaalop function definition')
+            s0 = self.define_gaalop_function()
+            if verbose >= 2:
+                print(s0)
+
+            if verbose >= 1:
+                print('Activating gaalop')
+            s1 = self.activate_gaalop()
+            if verbose >= 2:
+                print(s1)
+
+            if verbose >= 1:
+                print('Processing gaalop output')
+            s2 = self.process_gaalop_output()
+            if verbose >= 2:
+                print(s2)
+
+            if verbose >= 1:
+                print('Loading python function')
+            s3 = self.process_python_function()
+            if verbose >= 2:
+                print(s3)
+
+            if verbose >= 1:
+                print('Complete')
+            self._compiled = True
         else:
             raise ValueError("""The function is not sufficiently defined.
                 Please check that you have specified at least one output and a function body.
@@ -358,9 +374,9 @@ class Algorithm:
         """
         if self._compiled:
             if len(self.outputs) > 1:
-                return [layout.MultiVector(value=a) for a in self.func(*args)]
+                return [layout.MultiVector(value=a) for a in self.func(*[a.value for a in args])]
             else:
-                return self.func(*args)
+                return layout.MultiVector(value=self.func(*[a.value for a in args]))
         else:
             self.compile()
             return self.__call__(*args)
@@ -384,10 +400,17 @@ class Algorithm:
 
 
 
+from enum import Enum
 
 
-
-
+class GradeMasks(Enum):
+    # These are a set of masks we can apply to the input multivectors 
+    # so we dont have to define as many symbols
+    onevectormask = tuple( np.abs((layout.randomMV()(1).value)) > 0 )
+    twovectormask = tuple( np.abs((layout.randomMV()(2).value)) > 0 )
+    threevectormask = tuple( np.abs((layout.randomMV()(3).value)) > 0)
+    fourvectormask = tuple( np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0 )
+    fivevectormask = tuple( np.abs((e12345).value) > 0 )
 
 
 
@@ -395,14 +418,6 @@ class Algorithm:
 
 
 if __name__ == '__main__':
-
-    # These are a set of masks we can apply to the input multivectors 
-    # so we dont have to define as many symbols
-    onevectormask = np.abs((layout.randomMV()(1).value)) > 0
-    twovectormask = np.abs((layout.randomMV()(2).value)) > 0
-    threevectormask = np.abs((layout.randomMV()(3).value)) > 0
-    fourvectormask = np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0
-    fivevectormask = np.abs((e12345).value) > 0
 
     def traditional_algo():
         L = (P|S)
@@ -415,7 +430,7 @@ if __name__ == '__main__':
 
     test_algo = Algorithm(
         inputs=['P','S'],
-        blade_mask_list=[onevectormask,fourvectormask],
+        blade_mask_list=[GradeMasks.onevectormask.value,GradeMasks.fourvectormask.value],
         outputs=['C'],
         intermediates=['L'],
         body="""
@@ -424,10 +439,10 @@ if __name__ == '__main__':
         """)
 
     def traditional_algo_2(P, C):
-        Cplane = C^einf;
-        Cd = C*(Cplane);
-        L = (Cplane*P*Cplane)^Cd^einf;
-        pp = Cd^(L*e12345);
+        Cplane = C^einf
+        Cd = C*(Cplane)
+        L = (Cplane*P*Cplane)^Cd^einf
+        pp = Cd^(L*e12345)
         return pp
 
     def traditional_algo_2_fast(Pval, Cval):
@@ -439,7 +454,7 @@ if __name__ == '__main__':
 
     test_algo_2 = Algorithm(
         inputs=['P','C'],
-        blade_mask_list=[onevectormask,threevectormask],
+        blade_mask_list=[GradeMasks.onevectormask.value,GradeMasks.threevectormask.value],
         outputs=['pp'],
         intermediates=['L','Cplane','Cd'],
         body="""
