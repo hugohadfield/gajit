@@ -1,30 +1,105 @@
 
-
-import os
-os.environ['GAALOP_CLI_HOME']='/work/Gaalop/target/gaalop-1.0.0-bin'
-os.environ['NUMBA_DISABLE_PARALLEL'] = '1'
-
-USE_NUMBA = True
-
-if USE_NUMBA == False:
-    import os
-    os.environ['NUMBA_DISABLE_JIT'] = '1'
-
-from clifford.tools.g3c import *
 from clifford.g3c import *
+import os
 import numpy as np
 import re
 import time
 import numba
 
 import subprocess
+import inspect
+
+from enum import Enum
 
 
+# These are a set of masks we can apply to the input multivectors
+# so we dont have to define as many symbols
+class GradeMasks(Enum):
+    onevectormask = tuple( np.abs((layout.randomMV()(1).value)) > 0 )
+    twovectormask = tuple( np.abs((layout.randomMV()(2).value)) > 0 )
+    threevectormask = tuple( np.abs((layout.randomMV()(3).value)) > 0)
+    fourvectormask = tuple( np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0 )
+    fivevectormask = tuple( np.abs((e12345).value) > 0 )
+
+
+# USEFUL DEFINITIONS
 e0 = eo
-
-
-
 GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
+symbols_py2g = {'|': '.',
+                'e12345': '(e1^e2^e3^einf^e0)',
+                'e123': '(e1^e2^e3)'
+                }
+symbols_g2py = {v: k for k, v in symbols_py2g.items()}
+
+
+def py2gaalop(python_script):
+    """
+    This transpiles a python function to a gaalop compatible CLUSCRIPT
+    This supports a very minimal subset of python, no flow control etc
+    """
+    # Get rid of front and back whitespace
+    cleaned_script = python_script.strip()
+
+    # Extract the ouputs
+    split_function = cleaned_script.split('return')
+    cleaned_script = split_function[0]
+    output_string = split_function[1]
+    outputs = [a.strip() for a in output_string.split(',')]
+
+    # Extract the name and inputs
+    function_def = cleaned_script.split(':', 1)[0]
+    cleaned_script = cleaned_script.split(':', 1)[1]
+    function_def = function_def.split('def', 1)[1]
+    function_name = function_def.split('(', 1)[0].strip()
+    argument_string = function_def.split('(', 1)[1].split(')', 1)[0]
+    inputs = [a.strip() for a in argument_string.split(',')]
+
+    # Run the conversion
+    gaalop_script = cleaned_script.strip()
+    for k, v in symbols_py2g.items():
+        gaalop_script = gaalop_script.replace(k, v)
+
+    # Assert that all lines are terminated with semi colons
+    content = []
+    for line in gaalop_script.split('\n'):
+        l = line.strip()
+        if l[-1] != ';':
+            content.append(l + ';')
+        else:
+            content.append(l)
+    gaalop_script = '\n'.join(content)
+
+    # Extract the intermediates
+    intermediates = []
+    for line in cleaned_script.split('\n'):
+        if len(line.strip()) > 0:
+            sym = line.split('=', 1)[0].strip()
+            if sym not in inputs and sym not in outputs:
+                intermediates.append(sym)
+
+    return gaalop_script, inputs, outputs, intermediates, function_name
+
+
+def py2Algorithm(python_function, mask_list=None):
+    gaalop_script, inputs, outputs, intermediates, function_name = py2gaalop(python_function)
+    return Algorithm(
+        body=gaalop_script,
+        inputs=inputs,
+        outputs=outputs,
+        blade_mask_list=mask_list,
+        function_name=function_name,
+        intermediates=intermediates)
+
+
+def gaJIT(mask_list=None, verbose=0):
+    def gaalop_wrapper(func):
+        python_function = inspect.getsource(func)
+        algo = py2Algorithm(python_function, mask_list=mask_list)
+        algo.compile(verbose=verbose)
+        return algo
+
+    return gaalop_wrapper
+
 
 
 def activate_gaalop(gaalop_script,*args):
@@ -417,133 +492,3 @@ class Algorithm:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from enum import Enum
-
-
-class GradeMasks(Enum):
-    # These are a set of masks we can apply to the input multivectors 
-    # so we dont have to define as many symbols
-    onevectormask = tuple( np.abs((layout.randomMV()(1).value)) > 0 )
-    twovectormask = tuple( np.abs((layout.randomMV()(2).value)) > 0 )
-    threevectormask = tuple( np.abs((layout.randomMV()(3).value)) > 0)
-    fourvectormask = tuple( np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0 )
-    fivevectormask = tuple( np.abs((e12345).value) > 0 )
-
-
-
-
-
-
-if __name__ == '__main__':
-
-    def traditional_algo():
-        L = (P|S)
-        return L*einf*L
-
-    @numba.njit
-    def traditional_algo_fast(P_val,S_val):
-        L = imt_func(P_val,S_val)
-        return gmt_func(gmt_func(L,ninf_val),L)
-
-    test_algo = Algorithm(
-        inputs=['P','S'],
-        blade_mask_list=[GradeMasks.onevectormask.value,GradeMasks.fourvectormask.value],
-        outputs=['C'],
-        intermediates=['L'],
-        body="""
-        L = (P.S)
-        C = L*einf*L;
-        """)
-
-    def traditional_algo_2(P, C):
-        Cplane = C^einf
-        Cd = C*(Cplane)
-        L = (Cplane*P*Cplane)^Cd^einf
-        pp = Cd^(L*e12345)
-        return pp
-
-    def traditional_algo_2_fast(Pval, Cval):
-        Cplane = omt_func(Cval,ninf_val)
-        Cd = gmt_func(Cval,(Cplane))
-        L = omt_func(omt_func(gmt_func(gmt_func(Cplane,Pval),Cplane),Cd),ninf_val)
-        pp = omt_func(Cd,(dual_func(L)))
-        return pp
-
-    test_algo_2 = Algorithm(
-        inputs=['P','C'],
-        blade_mask_list=[GradeMasks.onevectormask.value,GradeMasks.threevectormask.value],
-        outputs=['pp'],
-        intermediates=['L','Cplane','Cd'],
-        body="""
-        Cplane = C^einf;
-        Cd = C*(Cplane);
-        L = (Cplane*P*Cplane)^Cd^einf;
-        pp = Cd^(L*(e1^e2^e3^einf^e0));
-        """)
-
-    P = random_conformal_point()
-    S = random_sphere()
-    C = random_circle()
-
-    # Ensure that the aswers are the same
-
-    # res_val = test_algo(P.value, S.value)
-    # res_mv = layout.MultiVector(value=res_val)
-    # print( res_mv )
-
-    # print( traditional_algo() )
-    # print( layout.MultiVector(value=traditional_algo_fast(P.value, S.value) ))
-
-    # start_time = time.time()
-    # for i in range(10000):
-    #     test_algo.func(P.value, S.value)
-    # t_gaalop = time.time() - start_time
-    # print('GAALOP ALGO 1: ', t_gaalop)
-
-    # start_time = time.time()
-    # for i in range(10000):
-    #     traditional_algo_fast(P.value, S.value)
-    # t_trad = time.time() - start_time
-    # print('TRADITIONAL 1: ', t_trad)
-
-    # print('T/G: ', t_trad/t_gaalop)
-
-
-    test_algo_2.compile()
-
-    pptrad = traditional_algo_2(P,C)*I5
-    ppgaalop = layout.MultiVector(value=test_algo_2(P.value,C.value))*I5
-    print( point_pair_to_end_points(pptrad) )
-    print( point_pair_to_end_points(ppgaalop) )
-    print(point_pair_to_end_points(layout.MultiVector(value=traditional_algo_2_fast(P.value,C.value))*I5))
-
-    start_time = time.time()
-    for i in range(10000):
-        test_algo_2.func(P.value, S.value)
-    t_gaalop = time.time() - start_time
-    print('GAALOP ALGO 2: ', t_gaalop)
-
-    start_time = time.time()
-    for i in range(10000):
-        traditional_algo_2_fast(P.value, S.value)
-    t_trad = time.time() - start_time
-    print('TRADITIONAL 2: ', t_trad)
-
-    print('T/G: ', t_trad/t_gaalop)
