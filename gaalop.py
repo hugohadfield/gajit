@@ -1,5 +1,7 @@
 
+
 import os
+os.environ['GAALOP_CLI_HOME']='/work/Gaalop/target/gaalop-1.0.0-bin'
 os.environ['NUMBA_DISABLE_PARALLEL'] = '1'
 
 USE_NUMBA = True
@@ -15,28 +17,60 @@ import re
 import time
 import numba
 
+import subprocess
+
+
 e0 = eo
 
 
 
+GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
 
 
-def activate_gaalop(gaalop_script):
+def activate_gaalop(gaalop_script,*args):
     """
     This function should take the CLUSCRIPT and pass it to gaalop over cli
     It should then activate the gaalop optimisation and return the c code result
     as a string
     """
-    return activate_gaalop_manual_via_files(gaalop_script)
+    return activate_gaalop_CLI(gaalop_script,*args)
 
 
+def activate_gaalop_CLI(gaalop_script, name, *args):
+    """
+    This function should take the CLUSCRIPT and pass it to gaalop over cli
+    It should then activate the gaalop optimisation and return the c code result
+    as a string
+    """
+    fname = name.strip()
+    wd = os.getcwd()
+    # Write the gaalop script to the local directory
+    with open(fname+'.clu', 'w') as fobj:
+        print(gaalop_script,file=fobj)
+    # Call the Gaalop CLI
+    os.chdir(GAALOP_CLI_HOME)
+    subprocess.run(['java','-jar', 'starter-1.0.0.jar',
+        '-algebraName','5d',
+        '-o', wd, 
+        '-optimizer','de.gaalop.tba.Plugin',
+        '-generator','de.gaalop.cpp.Plugin',
+        '-algebraBaseDir',wd+'/'+'algebra',
+        '-i','/../../../../../../../../../../../../../../'+wd+'/'+fname+'.clu'
+        ])
+    os.chdir(wd)
+    # Load the file
+    with open(fname+'.c', 'r') as fobj:
+        c_code_result = fobj.read()
+    return c_code_result
 
-def activate_gaalop_manual_via_files(gaalop_script):
+
+def activate_gaalop_manual_via_files(gaalop_script, name, *args):
     """
     This initiates the manual gaalop process via files
     """
+    fname = name.strip()
     # Write the gaalop script to the local directory
-    with open('gaalop_script.clu', 'w') as fobj:
+    with open(fname+'.clu', 'w') as fobj:
         print(gaalop_script,file=fobj)
     print('\n\n')
     print('OPEN GAALOP AND LOAD THE FILE gaalop_script.clu FROM THIS DIRECTORY')
@@ -49,15 +83,15 @@ def activate_gaalop_manual_via_files(gaalop_script):
         except EOFError:
             break
     # Load the file
-    with open('gaalop_script.c', 'r') as fobj:
+    with open(fname+'.c', 'r') as fobj:
         c_code_result = fobj.read()
     print('\n')
-    print('gaalop_script.c FOUND, CONTINUING')
+    print(fname+'.c FOUND, CONTINUING')
     print('\n')
     return c_code_result
 
 
-def activate_gaalop_manual(gaalop_script):
+def activate_gaalop_manual(gaalop_script, *args):
     """ 
     This initiates the manual gaalop process
     """
@@ -308,7 +342,7 @@ class Algorithm:
         """
         Calls gaalop with the CLUScript specified
         """
-        self.gaalop_output = activate_gaalop(self.gaalop_input)
+        self.gaalop_output = activate_gaalop(self.gaalop_input, self.function_name)
         return self.gaalop_output
 
     def process_gaalop_output(self):

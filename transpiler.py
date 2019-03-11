@@ -2,6 +2,7 @@
 from gaalop import Algorithm, GradeMasks
 import inspect
 
+
 symbols_py2g = {'|':'.',
                 'e12345':'(e1^e2^e3^einf^e0)',
                 'e123':'(e1^e2^e3)'
