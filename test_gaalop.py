@@ -2,7 +2,7 @@
 import os
 os.environ['GAALOP_CLI_HOME'] = '/work/Gaalop/target/gaalop-1.0.0-bin'
 
-from pygaalop import *
+from gaJIT import *
 
 import unittest
 from clifford.tools.g3c import *
