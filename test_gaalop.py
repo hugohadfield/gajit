@@ -1,6 +1,8 @@
 
 import os
-os.environ['GAALOP_CLI_HOME'] = '/work/Gaalop/target/gaalop-1.0.0-bin'
+os.environ['GAALOP_CLI_HOME'] = 'D:\\phd\\pygae\\Gaalop\\target\\gaalop-1.0.0-bin'
+os.environ['GAALOP_ALGEBRA_HOME'] = 'D:\\phd\\gaalopinterface\\gaJIT\\algebra'
+
 
 from gaJIT import *
 
@@ -49,3 +51,6 @@ class TestJit(unittest.TestCase):
         print('TRADITIONAL 2: ', t_trad)
 
         print('T/G: ', t_trad / t_gaalop)
+
+if __name__ == '__main__':
+    unittest.main()

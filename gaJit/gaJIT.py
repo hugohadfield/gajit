@@ -6,6 +6,8 @@ import re
 import time
 import numba
 
+from pathlib import Path
+
 import subprocess
 import inspect
 
@@ -25,6 +27,7 @@ class GradeMasks(Enum):
 # USEFUL DEFINITIONS
 e0 = eo
 GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
+GAALOP_ALGEBRA_HOME = os.environ['GAALOP_ALGEBRA_HOME']
 symbols_py2g = {'|': '.',
                 'e12345': '(e1^e2^e3^einf^e0)',
                 'e123': '(e1^e2^e3)'
@@ -124,14 +127,24 @@ def activate_gaalop_CLI(gaalop_script, name, *args):
         print(gaalop_script,file=fobj)
     # Call the Gaalop CLI
     os.chdir(GAALOP_CLI_HOME)
-    subprocess.run(['java','-jar', 'starter-1.0.0.jar',
-        '-algebraName','5d',
-        '-o', wd, 
-        '-optimizer','de.gaalop.tba.Plugin',
-        '-generator','de.gaalop.cpp.Plugin',
-        '-algebraBaseDir',wd+'/'+'algebra',
-        '-i','/../../../../../../../../../../../../../../'+wd+'/'+fname+'.clu'
-        ])
+    if os.name == 'nt':
+        subprocess.run(['java','-jar', 'starter-1.0.0.jar',
+            '-algebraName','5d',
+            '-o', wd, 
+            '-optimizer','de.gaalop.tba.Plugin',
+            '-generator','de.gaalop.cpp.Plugin',
+            '-algebraBaseDir',GAALOP_ALGEBRA_HOME,
+            '-i','/../../../../../../../../../../../../../../'+wd[3:]+'/'+fname+'.clu'
+            ])
+    else:
+        subprocess.run(['java','-jar', 'starter-1.0.0.jar',
+            '-algebraName','5d',
+            '-o', wd, 
+            '-optimizer','de.gaalop.tba.Plugin',
+            '-generator','de.gaalop.cpp.Plugin',
+            '-algebraBaseDir',GAALOP_ALGEBRA_HOME,
+            '-i','/../../../../../../../../../../../../../../'+wd+'/'+fname+'.clu'
+            ])
     os.chdir(wd)
     # Load the file
     with open(fname+'.c', 'r') as fobj:
