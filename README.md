@@ -1,4 +1,4 @@
-# gaJIT
+# gajit
 A JIT compiler for geometric algebra in python
 
 Using [Gaalop](http://www.gaalop.de/) and [numba](http://numba.pydata.org/) this package symbolically optimises geomteric algebra algorithms, generates numpy code and JITs the resultant code. **Currently only supports Cl(4,1)**, still very experimental and hacky. Currently produces around an order of magnitude speed up for normally written algorithms and around **2-4x speed up over hand optimised code**. Many further optimisations are possible that so far have not been implemented, Pull Requests welcomed.
