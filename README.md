@@ -7,10 +7,10 @@ Using [Gaalop](http://www.gaalop.de/) and [numba](http://numba.pydata.org/) this
 
 The package comes in the form of a decorator that can be applied to normal functions written with the [clifford](https://www.github.com/pygae/clifford) GA syntax. Grade masks can be specified as arguements **this is highly recommended for both run and compile time speedups** verbosity of the JIT process can be adjusted for debugging:
 ```
-from gaJIT import *
+from gajit import *
 from clifford.g3c import *
 
-@gaJIT(mask_list=[GradeMasks.onevectormask.value, GradeMasks.threevectormask.value], verbose=1)
+@gajit(mask_list=[GradeMasks.onevectormask.value, GradeMasks.threevectormask.value], verbose=1)
 def pp_algo_wrapped(P, C):
     Cplane = C ^ einf
     Cd = C * (Cplane)
