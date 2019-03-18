@@ -94,7 +94,7 @@ def py2Algorithm(python_function, mask_list=None):
         intermediates=intermediates)
 
 
-def gaJIT(mask_list=None, verbose=0):
+def gajit(mask_list=None, verbose=0):
     def gaalop_wrapper(func):
         python_function = inspect.getsource(func)
         algo = py2Algorithm(python_function, mask_list=mask_list)

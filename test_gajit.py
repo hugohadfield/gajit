@@ -1,10 +1,10 @@
 
 import os
 os.environ['GAALOP_CLI_HOME'] = 'D:\\phd\\pygae\\Gaalop\\target\\gaalop-1.0.0-bin'
-os.environ['GAALOP_ALGEBRA_HOME'] = 'D:\\phd\\gaalopinterface\\gaJIT\\algebra'
+os.environ['GAALOP_ALGEBRA_HOME'] = 'D:\\phd\\gaalopinterface\\gajit\\algebra'
 
 
-from gaJIT import *
+from gajit import *
 
 import unittest
 from clifford.tools.g3c import *
@@ -14,7 +14,7 @@ import time
 
 
 
-@gaJIT(mask_list=[GradeMasks.onevectormask.value, GradeMasks.threevectormask.value], verbose=1)
+@gajit(mask_list=[GradeMasks.onevectormask.value, GradeMasks.threevectormask.value], verbose=1)
 def pp_algo_wrapped(P, C):
     Cplane = C ^ einf
     Cd = C * (Cplane)
