@@ -4,6 +4,7 @@ cr4d;compass-ruler
 pr4d;projective
 st4d;space-time
 5d;conformal space
+5dclifford;conformal space clifford
 6d;conic space
 8d;conformal conic
 9d;GA by Zamora

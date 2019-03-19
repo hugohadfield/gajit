@@ -17,7 +17,7 @@ e0 = eo
 GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
 GAALOP_ALGEBRA_HOME = os.environ['GAALOP_ALGEBRA_HOME']
 symbols_py2g = {'|': '.',
-                'e12345': '(e1^e2^e3^einf^e0)',
+                'e12345': '(e1^e2^e3^e4^e5)',
                 'e123': '(e1^e2^e3)'
                 }
 symbols_g2py = {v: k for k, v in symbols_py2g.items()}
@@ -82,11 +82,11 @@ def py2Algorithm(python_function, mask_list=None):
         intermediates=intermediates)
 
 
-def gajit(mask_list=None, verbose=0):
+def gajit(mask_list=None, verbose=0,  cache_python=True, ignore_cache=False):
     def gaalop_wrapper(func):
         python_function = inspect.getsource(func)
         algo = py2Algorithm(python_function, mask_list=mask_list)
-        algo.compile(verbose=verbose)
+        algo.compile(verbose=verbose, cache_python=cache_python, ignore_cache=ignore_cache)
         return algo
 
     return gaalop_wrapper
@@ -117,7 +117,7 @@ def activate_gaalop_CLI(gaalop_script, name, *args):
     os.chdir(GAALOP_CLI_HOME)
     if os.name == 'nt':
         subprocess.run(['java','-jar', 'starter-1.0.0.jar',
-            '-algebraName','5d',
+            '-algebraName','5dclifford',
             '-o', wd, 
             '-optimizer','de.gaalop.tba.Plugin',
             '-generator','de.gaalop.cpp.Plugin',
@@ -126,7 +126,7 @@ def activate_gaalop_CLI(gaalop_script, name, *args):
             ])
     else:
         subprocess.run(['java','-jar', 'starter-1.0.0.jar',
-            '-algebraName','5d',
+            '-algebraName','5dclifford',
             '-o', wd, 
             '-optimizer','de.gaalop.tba.Plugin',
             '-generator','de.gaalop.cpp.Plugin',
@@ -203,59 +203,59 @@ def activate_gaalop_manual(gaalop_script, *args):
 
 
 
-
-
-gaalop_list = [1+0*e1,
-e1,
-e2,
-e3,
-einf,
-eo,
-e1^e2,
-e1^e3,
-e1^einf,
-e1^eo,
-e2^e3,
-e2^einf,
-e2^eo,
-e3^einf,
-e3^eo,
-einf^eo,
-e1^e2^e3,
-e1^e2^einf,
-e1^e2^eo,
-e1^e3^einf,
-e1^e3^eo,
-e1^einf^eo,
-e2^e3^einf,
-e2^e3^eo,
-e2^einf^eo,
-e3^einf^eo,
-e1^e2^e3^einf,
-e1^e2^e3^eo,
-e1^e2^einf^eo,
-e1^e3^einf^eo,
-e2^e3^einf^eo,
-e1^e2^e3^e4^e5]
-
-gaalop_map = np.array([x.value for x in gaalop_list]).T
-inverse_gaalop_map = np.linalg.inv(gaalop_map)
-
-
-def convert_gaalop_vector(gv):
-    """
-    This function takes an array of coefficients defined in the gaalop standard ordering
-    and converts it to the clifford standard ordering multivector object
-    """
-    return layout.MultiVector(value=gaalop_map@gv)
-
-
-def convert_clifford_to_gaalop(mv):
-    """
-    This function takes a MultiVector and converts it into an array in the GAALOP
-    standard ordering
-    """
-    return inverse_gaalop_map@mv.value
+#
+#
+# gaalop_list = [1+0*e1,
+# e1,
+# e2,
+# e3,
+# einf,
+# eo,
+# e1^e2,
+# e1^e3,
+# e1^einf,
+# e1^eo,
+# e2^e3,
+# e2^einf,
+# e2^eo,
+# e3^einf,
+# e3^eo,
+# einf^eo,
+# e1^e2^e3,
+# e1^e2^einf,
+# e1^e2^eo,
+# e1^e3^einf,
+# e1^e3^eo,
+# e1^einf^eo,
+# e2^e3^einf,
+# e2^e3^eo,
+# e2^einf^eo,
+# e3^einf^eo,
+# e1^e2^e3^einf,
+# e1^e2^e3^eo,
+# e1^e2^einf^eo,
+# e1^e3^einf^eo,
+# e2^e3^einf^eo,
+# e1^e2^e3^e4^e5]
+#
+# gaalop_map = np.array([x.value for x in gaalop_list]).T
+# inverse_gaalop_map = np.linalg.inv(gaalop_map)
+#
+#
+# def convert_gaalop_vector(gv):
+#     """
+#     This function takes an array of coefficients defined in the gaalop standard ordering
+#     and converts it to the clifford standard ordering multivector object
+#     """
+#     return layout.MultiVector(value=gaalop_map@gv)
+#
+#
+# def convert_clifford_to_gaalop(mv):
+#     """
+#     This function takes a MultiVector and converts it into an array in the GAALOP
+#     standard ordering
+#     """
+#     return inverse_gaalop_map@mv.value
 
 
 def map_multivector(mv_name='X',blade_mask=np.ones(32)):
@@ -440,42 +440,78 @@ class Algorithm:
         self.func = locals()[self.function_name]
         return self.func
 
-    def compile(self, verbose=0):
+    def save_python(self):
+        with open(self.function_name+'.py', 'w') as fobj:
+            print(self.python_text, file=fobj)
+
+    def load_python(self):
+        if os.path.isfile(self.function_name + '.py'):
+            with open(self.function_name+'.py', 'r') as fobj:
+                self.python_text = fobj.read()
+            return True
+        else:
+            return False
+
+    def compile(self, verbose=0, cache_python=True, ignore_cache=False):
         """ 
         Runs the full compilation pipeline 
         """
-        if self.check_compilable():
-            if verbose >= 1:
-                print('Running gaalop function definition')
-            s0 = self.define_gaalop_function()
-            if verbose >= 2:
-                print(s0)
+        if ignore_cache:
+            if self.check_compilable():
+                if verbose >= 1:
+                    print('Running gaalop function definition', flush=True)
+                s0 = self.define_gaalop_function()
+                if verbose >= 2:
+                    print(s0)
 
-            if verbose >= 1:
-                print('Activating gaalop')
-            s1 = self.activate_gaalop()
-            if verbose >= 2:
-                print(s1)
+                if verbose >= 1:
+                    print('Activating gaalop', flush=True)
+                s1 = self.activate_gaalop()
+                if verbose >= 2:
+                    print(s1)
 
-            if verbose >= 1:
-                print('Processing gaalop output')
-            s2 = self.process_gaalop_output()
-            if verbose >= 2:
-                print(s2)
+                if verbose >= 1:
+                    print('Processing gaalop output', flush=True)
+                s2 = self.process_gaalop_output()
+                if verbose >= 2:
+                    print(s2)
 
-            if verbose >= 1:
-                print('Loading python function')
-            s3 = self.process_python_function()
-            if verbose >= 2:
-                print(s3)
+                if cache_python:
+                    if verbose >= 1:
+                        print('Caching python script',flush=True)
+                    self.save_python()
 
-            if verbose >= 1:
-                print('Complete')
-            self._compiled = True
+                if verbose >= 1:
+                    print('Loading python function', flush=True)
+                s3 = self.process_python_function()
+                if verbose >= 2:
+                    print(s3)
+
+                if verbose >= 1:
+                    print('Complete', flush=True)
+                self._compiled = True
+
+            else:
+                raise ValueError("""The function is not sufficiently defined.
+                    Please check that you have specified at least one output and a function body.
+                    """)
+
         else:
-            raise ValueError("""The function is not sufficiently defined.
-                Please check that you have specified at least one output and a function body.
-                """)
+            if self.load_python():
+                if verbose >= 1:
+                    print('Loading python function', flush=True)
+                s3 = self.process_python_function()
+                if verbose >= 2:
+                    print(s3)
+
+                if verbose >= 1:
+                    print('Complete', flush=True)
+                self._compiled = True
+            else:
+                self.compile(verbose=verbose,
+                             cache_python=cache_python,
+                             ignore_cache=True)
+
 
     def __call__(self, *args):
         """ 
@@ -490,6 +526,5 @@ class Algorithm:
         else:
             self.compile()
             return self.__call__(*args)
-
 
 
