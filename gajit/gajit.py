@@ -11,18 +11,6 @@ from pathlib import Path
 import subprocess
 import inspect
 
-from enum import Enum
-
-
-# These are a set of masks we can apply to the input multivectors
-# so we dont have to define as many symbols
-class GradeMasks(Enum):
-    onevectormask = tuple( np.abs((layout.randomMV()(1).value)) > 0 )
-    twovectormask = tuple( np.abs((layout.randomMV()(2).value)) > 0 )
-    threevectormask = tuple( np.abs((layout.randomMV()(3).value)) > 0)
-    fourvectormask = tuple( np.abs(((e1+e2+e3+e4+e5)*e12345).value) > 0 )
-    fivevectormask = tuple( np.abs((e12345).value) > 0 )
-
 
 # USEFUL DEFINITIONS
 e0 = eo

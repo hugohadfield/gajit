@@ -1,1 +1,1 @@
-from .gajit import gajit, GradeMasks
+from .gajit import gajit
