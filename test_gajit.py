@@ -16,98 +16,71 @@ from clifford import Cl, conformalize
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-layout_orig, blades_orig = Cl(3)
-layout, blades, stuff = conformalize(layout_orig)
-
-from clifford.tools.g3c import random_conformal_point
-
-e1 = blades['e1']
-e2 = blades['e2']
-e3 = blades['e3']
-e123 = blades['e123']
-e12 = blades['e12']
-
-
-def example_one(X, R):
-    Y = 1 + (R * X * ~R)
-    Ystar = Y * (e1 ^ e2 ^ e3)
-    F = Ystar | (e1 ^ e2)
-    return Ystar
-
-
-gp = layout.gmt_func
-op = layout.omt_func
-ip = layout.imt_func
-rev = layout.adjoint_func
-
-e12_value = (e1 ^ e2).value
-e123_value = (e1 ^ e2 ^ e3).value
-
-
-def example_one_faster(X, R):
-    Y = gp(gp(R, X), rev(R))
-    Y[0] += 1
-    Ystar = gp(Y, e123_value)
-    F = ip(Ystar, e12_value)
-    return Ystar
-
-
-@numba.njit
-def example_one_faster_jit(X, R):
-    Y = gp(gp(R, X), rev(R))
-    Y[0] += 1
-    Ystar = gp(Y, e123_value)
-    F = ip(Ystar, e12_value)
-    return Ystar
-
-
-@gajit(mask_list=[layout.grade_mask(1), layout.rotor_mask], verbose=2, ignore_cache=False)
-def example_one_gajit(X, R):
-    Y = 1 + (R * X * (~R))
-    Ystar = Y * (e1 ^ e2 ^ e3)
-    F = Ystar | (e1 ^ e2)
-    return Ystar
-
-
-
-
-
 class TestPaper(unittest.TestCase):
 
     def test_example_one(self):
+
+        layout_orig, blades_orig = Cl(3)
+        layout, blades, stuff = conformalize(layout_orig)
+
+        from clifford.tools.g3c import random_conformal_point
+
+        e1 = blades['e1']
+        e2 = blades['e2']
+        e3 = blades['e3']
+        e123 = blades['e123']
+        e12 = blades['e12']
+
+        def example_one(X, R):
+            Y = 1 + (R * X * ~R)
+            Ystar = Y * (e1 ^ e2 ^ e3)
+            F = Ystar | (e1 ^ e2)
+            return F
+
+        gp = layout.gmt_func
+        op = layout.omt_func
+        ip = layout.imt_func
+        rev = layout.adjoint_func
+
+        e12_value = (e1 ^ e2).value
+        e123_value = (e1 ^ e2 ^ e3).value
+
+        def example_one_faster(X, R):
+            Y = gp(gp(R, X), rev(R))
+            Y[0] += 1
+            Ystar = gp(Y, e123_value)
+            F = ip(Ystar, e12_value)
+            return F
+
+        @numba.njit
+        def example_one_faster_jit(X, R):
+            Y = gp(gp(R, X), rev(R))
+            Y[0] += 1
+            Ystar = gp(Y, e123_value)
+            F = ip(Ystar, e12_value)
+            return F
+
+        @gajit(mask_list=[layout.grade_mask(1), layout.rotor_mask], verbose=1, ignore_cache=True)
+        def example_one_gajit(X, R):
+            Y = 1 + (R * X * (~R))
+            D = Y * (e1 ^ e2 ^ e3)
+            F = D | (e1 ^ e2)
+            return F
+
         #### EXAMPLE ONE FROM THE PAPER ####
 
 
-        print(layout.grade_mask(1)*1)
-        print(layout.rotor_mask)
-
 
         ## ENSURE ALL THE ALGORITHMS GIVE THE SAME ANSWER
-        X = layout.randomMV(1)
+        X = layout.randomMV()(1)
         R = layout.randomRotor()
         true = example_one(X, R)
-        print(R)
-        print(R.isVersor())
-        print(true)
         for i in range(100):
-            X = layout.randomMV(1)#
+            X = layout.randomMV()(1)
             R = layout.randomRotor()
 
             true = example_one(X,R)
-            true_array = np.array([true.value]*3)
+            true_array = np.array([true.value, true.value, true.value])
             test_array = np.zeros((3,32))
 
             test_array[0, :] = example_one_faster(X.value, R.value)
@@ -115,7 +88,6 @@ class TestPaper(unittest.TestCase):
             test_array[2, :] = example_one_gajit(X,R).value
 
             for j in range(3):
-                print(j)
                 try:
                     np.testing.assert_almost_equal(test_array[j, :], true_array[j, :])
                 except:
@@ -124,77 +96,109 @@ class TestPaper(unittest.TestCase):
                     print(layout.MultiVector(value=true_array[j, :]))
                     print(layout.MultiVector(value=example_one_gajit.func(X.value, R.value)))
                     print('\n', flush=True)
-                    #np.testing.assert_almost_equal(test_array[j, :], true_array[j, :])
+                    np.testing.assert_almost_equal(test_array[j, :], true_array[j, :])
 
 
-        # start_time = time.time()
-        # for i in range(10000):
-        #     example_one(X, R)
-        # t_normal = time.time() - start_time
-        # print('UNOPTIMISED: ', t_normal)
-        #
-        # start_time = time.time()
-        # for i in range(10000):
-        #     example_one_faster(X.value, R.value)
-        # t_hand = time.time() - start_time
-        # print('HAND: ', t_hand)
-        #
-        # start_time = time.time()
-        # for i in range(10000):
-        #     example_one_faster_jit(X.value, R.value)
-        # t_jit = time.time() - start_time
-        # print('HAND + JIT: ', t_jit)
-        #
-        # start_time = time.time()
-        # for i in range(10000):
-        #     example_one_gajit(X, R)
-        # t_gajit = time.time() - start_time
-        # print('GAJIT: ', t_gajit)
+        start_time = time.time()
+        for i in range(10000):
+            example_one(X, R)
+        t_normal = time.time() - start_time
+        print('UNOPTIMISED: ', t_normal)
+
+        start_time = time.time()
+        for i in range(10000):
+            example_one_faster(X.value, R.value)
+        t_hand = time.time() - start_time
+        print('HAND: ', t_hand)
+
+        start_time = time.time()
+        for i in range(10000):
+            example_one_faster_jit(X.value, R.value)
+        t_jit = time.time() - start_time
+        print('HAND + JIT: ', t_jit)
+
+        start_time = time.time()
+        for i in range(10000):
+            example_one_gajit(X, R)
+        t_gajit = time.time() - start_time
+        print('GAJIT: ', t_gajit)
 
 
 
-class TestOtherExamples(unittest.TestCase):
+class TestBasicExamples(unittest.TestCase):
 
-    def test_basics(self):
-
+    def setUp(self):
         layout_orig, blades_orig = Cl(3)
         layout, blades, stuff = conformalize(layout_orig)
+        self.layout = layout
+        self.blades = blades
 
-        e1 = blades['e1']
-        e2 = blades['e2']
-        e3 = blades['e3']
-        e12345 = blades['e12345']
-        einf = stuff['einf']
-        e123 = blades['e123']
-        e12 = blades['e12']
+    def test_basic_map(self):
 
-        msk = np.ones(32)
-        @gajit(mask_list=[msk], ignore_cache=True)
+        @gajit(mask_list=[np.ones(32)], ignore_cache=True)
         def basic_map_test(A):
             C = A
             return C
 
-        res = layout.randomMV()
+        res = self.layout.randomMV()
         res2 = basic_map_test(res)
-        np.testing.assert_almost_equal(res.value, res2.value)
+        np.testing.assert_almost_equal((res).value, res2.value)
 
-        @gajit(mask_list=[msk], ignore_cache=True)
-        def basic_reverse_test(A):
+    def test_basic_addition(self):
+
+        @gajit(mask_list=[np.ones(32)], ignore_cache=True)
+        def basic_addition(A):
+            C = 3.14159 + A
+            return C
+
+        res = self.layout.randomMV()
+        res2 = basic_addition(res)
+        np.testing.assert_almost_equal((3.14159 + res).value,res2.value)
+
+    def test_basic_reverse(self):
+
+        @gajit(mask_list=[np.ones(32)], ignore_cache=True)
+        def basic_reverse(A):
             C = ~A
             return C
 
-        res = layout.randomMV()
-        res2 = basic_reverse_test(res)
+        res = self.layout.randomMV()
+        res2 = basic_reverse(res)
         np.testing.assert_almost_equal((~res).value, res2.value)
 
-        @gajit(mask_list=[msk], ignore_cache=True)
-        def basic_addition_test(A):
-            C = 1 + A
-            return C
+    # def test_basic_rotor(self):
+    #
+    #     @gajit(mask_list=[self.layout.grade_mask(1), self.layout.rotor_mask], ignore_cache=True)
+    #     def basic_rotor(A, R):
+    #         C = R*A*~R
+    #         return C
+    #
+    #     A = self.layout.randomMV()(1)
+    #     R = self.layout.randomRotor()
+    #     res2 = basic_rotor(A, R)
+    #     np.testing.assert_almost_equal((R*A*~R).value, res2.value)
 
-        res = layout.randomMV()
-        res2 = basic_addition_test(res)
-        np.testing.assert_almost_equal((1 + res).value, res2.value)
+    def test_basic_combo(self):
+
+        e1 = self.blades['e1']
+        e2 = self.blades['e2']
+        e3 = self.blades['e3']
+
+        @gajit(mask_list=[self.layout.grade_mask(1), self.layout.rotor_mask], ignore_cache=True)
+        def basic_combo(A, R):
+            C = 3.14 + R*A*~R
+            D = C*(e1^e2^e3)
+            E = D|(e1^e2)
+            return E
+
+        A = self.layout.randomMV()(1)
+        R = self.layout.randomRotor()
+        res2 = basic_combo(A, R)
+        res = ((3.14 + R*A*~R)*(e1^e2^e3))|(e1^e2)
+        np.testing.assert_almost_equal(res.value, res2.value)
+
+
+class TestTimingExamples(unittest.TestCase):
 
     def test_jit_example(self):
 

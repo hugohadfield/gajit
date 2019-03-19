@@ -17,7 +17,7 @@ e0 = eo
 GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
 GAALOP_ALGEBRA_HOME = os.environ['GAALOP_ALGEBRA_HOME']
 symbols_py2g = {'|': '.',
-                'e12345': '(e1^e2^e3^e4^e5)',
+                'e12345': '(e1^e2^e3^einf^e0)',
                 'e123': '(e1^e2^e3)'
                 }
 symbols_g2py = {v: k for k, v in symbols_py2g.items()}
@@ -117,7 +117,7 @@ def activate_gaalop_CLI(gaalop_script, name, *args):
     os.chdir(GAALOP_CLI_HOME)
     if os.name == 'nt':
         subprocess.run(['java','-jar', 'starter-1.0.0.jar',
-            '-algebraName','5dclifford',
+            '-algebraName','5d',
             '-o', wd, 
             '-optimizer','de.gaalop.tba.Plugin',
             '-generator','de.gaalop.cpp.Plugin',
@@ -126,7 +126,7 @@ def activate_gaalop_CLI(gaalop_script, name, *args):
             ])
     else:
         subprocess.run(['java','-jar', 'starter-1.0.0.jar',
-            '-algebraName','5dclifford',
+            '-algebraName','5d',
             '-o', wd, 
             '-optimizer','de.gaalop.tba.Plugin',
             '-generator','de.gaalop.cpp.Plugin',
@@ -203,59 +203,59 @@ def activate_gaalop_manual(gaalop_script, *args):
 
 
 
-#
-#
-# gaalop_list = [1+0*e1,
-# e1,
-# e2,
-# e3,
-# einf,
-# eo,
-# e1^e2,
-# e1^e3,
-# e1^einf,
-# e1^eo,
-# e2^e3,
-# e2^einf,
-# e2^eo,
-# e3^einf,
-# e3^eo,
-# einf^eo,
-# e1^e2^e3,
-# e1^e2^einf,
-# e1^e2^eo,
-# e1^e3^einf,
-# e1^e3^eo,
-# e1^einf^eo,
-# e2^e3^einf,
-# e2^e3^eo,
-# e2^einf^eo,
-# e3^einf^eo,
-# e1^e2^e3^einf,
-# e1^e2^e3^eo,
-# e1^e2^einf^eo,
-# e1^e3^einf^eo,
-# e2^e3^einf^eo,
-# e1^e2^e3^e4^e5]
-#
-# gaalop_map = np.array([x.value for x in gaalop_list]).T
-# inverse_gaalop_map = np.linalg.inv(gaalop_map)
-#
-#
-# def convert_gaalop_vector(gv):
-#     """
-#     This function takes an array of coefficients defined in the gaalop standard ordering
-#     and converts it to the clifford standard ordering multivector object
-#     """
-#     return layout.MultiVector(value=gaalop_map@gv)
-#
-#
-# def convert_clifford_to_gaalop(mv):
-#     """
-#     This function takes a MultiVector and converts it into an array in the GAALOP
-#     standard ordering
-#     """
-#     return inverse_gaalop_map@mv.value
+
+
+gaalop_list = [1+0*e1,
+e1,
+e2,
+e3,
+einf,
+eo,
+e1^e2,
+e1^e3,
+e1^einf,
+e1^eo,
+e2^e3,
+e2^einf,
+e2^eo,
+e3^einf,
+e3^eo,
+einf^eo,
+e1^e2^e3,
+e1^e2^einf,
+e1^e2^eo,
+e1^e3^einf,
+e1^e3^eo,
+e1^einf^eo,
+e2^e3^einf,
+e2^e3^eo,
+e2^einf^eo,
+e3^einf^eo,
+e1^e2^e3^einf,
+e1^e2^e3^eo,
+e1^e2^einf^eo,
+e1^e3^einf^eo,
+e2^e3^einf^eo,
+e1^e2^e3^e4^e5]
+
+gaalop_map = np.array([x.value for x in gaalop_list]).T
+inverse_gaalop_map = np.linalg.inv(gaalop_map)
+
+
+def convert_gaalop_vector(gv):
+    """
+    This function takes an array of coefficients defined in the gaalop standard ordering
+    and converts it to the clifford standard ordering multivector object
+    """
+    return layout.MultiVector(value=gaalop_map@gv)
+
+
+def convert_clifford_to_gaalop(mv):
+    """
+    This function takes a MultiVector and converts it into an array in the GAALOP
+    standard ordering
+    """
+    return inverse_gaalop_map@mv.value
 
 
 def map_multivector(mv_name='X',blade_mask=np.ones(32)):
