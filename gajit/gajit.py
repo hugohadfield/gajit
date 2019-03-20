@@ -2,9 +2,11 @@
 from clifford.g3c import *
 import os
 import numpy as np
+from numpy import array
 import re
 import time
 import numba
+import ctypes as ct
 
 from pathlib import Path
 
@@ -18,9 +20,11 @@ GAALOP_CLI_HOME = os.environ['GAALOP_CLI_HOME']
 GAALOP_ALGEBRA_HOME = os.environ['GAALOP_ALGEBRA_HOME']
 symbols_py2g = {'|': '.',
                 'e12345': '(e1^e2^e3^einf^e0)',
-                'e123': '(e1^e2^e3)'
+                'e123': '(e1^e2^e3)',
                 }
-symbols_g2py = {v: k for k, v in symbols_py2g.items()}
+symbols_c2py = {'sqrtf':'np.sqrt',
+                'fabs':'np.abs'
+                }
 
 
 def py2gaalop(python_script):
@@ -242,6 +246,96 @@ gaalop_map = np.array([x.value for x in gaalop_list]).T
 inverse_gaalop_map = np.linalg.inv(gaalop_map)
 
 
+
+
+
+
+def wrap_ctypes_func(function_name, inputs, outputs, intermediates, blade_mask_list):
+    bm_list = [b.astype(bool) for b in blade_mask_list]
+
+    total_floats = sum([sum(b) for b in bm_list])
+
+    so_name = function_name + '.so'
+
+    dll = ct.CDLL('./' + so_name)
+    fnptr = dll.calculate
+    fnptr.argtypes = [ct.c_float] * total_floats + [ct.POINTER(ct.c_float)] * (len(inputs) + len(outputs))
+    fnptr.restype = ct.c_void_p
+
+    fdef = 'def ' + function_name + '('
+    i = 0
+    for inp in inputs:
+        if i != 0:
+            fdef += ',' + inp
+        else:
+            fdef += inp
+        i += 1
+    if i != 0:
+        fdef += ',fnptr'
+    else:
+        fdef += 'fnptr'
+    fdef += '):'
+
+    total_float_inputs = blade_mask_list
+
+    inputmapping = '['
+    outputmapping = '['
+    input_text = ''
+    output_text = '    return '
+    n = 0
+    for i in range(len(inputs)):
+        input_text = '    ' + inputs[i] + '_temp=' + inputs[i] + str(bm_list) + '.astype(np.float32)\n' + input_text
+        if i != 0:
+            inputmapping += ',*' + inputs[i] + '_temp'
+        else:
+            inputmapping += '*' + inputs[i] + '_temp'
+        if n != 0:
+            outputmapping += ',' + inputs[i] + '_temp.ctypes.data_as(ct.POINTER(ct.c_float))'
+        else:
+            outputmapping += inputs[i] + '_temp.ctypes.data_as(ct.POINTER(ct.c_float))'
+        n = n + 1
+    inputmapping += ']'
+    for i in range(len(outputs)):
+        input_text = '    ' + outputs[i] + '=np.zeros(32,dtype=np.float32)\n' + input_text
+        if i != 0:
+            output_text += ',gaalop_map@' + outputs[i]
+        else:
+            output_text += 'gaalop_map@' + outputs[i]
+        if n != 0:
+            outputmapping += ',' + outputs[i] + '.ctypes.data_as(ct.POINTER(ct.c_float))'
+        else:
+            outputmapping += outputs[i] + '.ctypes.data_as(ct.POINTER(ct.c_float))'
+        n = n + 1
+    outputmapping += ']'
+
+    # m for m in blade_mask_list[i]
+    joint_mapping = inputmapping + '+' + outputmapping
+
+    final_function_text = ''
+    final_function_text += fdef + '\n'
+    final_function_text += input_text + '\n'
+    final_function_text += '    final_inputs = ' + joint_mapping + '\n'
+    final_function_text += '    fnptr(*final_inputs)\n'
+    final_function_text += output_text + '\n'
+
+    # print(final_function_text)
+
+    def wrap(fnptr):
+        exec(final_function_text)
+        output_func = locals()[function_name]
+
+        def op_func(args):
+            return output_func(args, fnptr)
+
+        return op_func
+
+    return wrap(fnptr)
+
+
+
+
+
+
 def convert_gaalop_vector(gv):
     """
     This function takes an array of coefficients defined in the gaalop standard ordering
@@ -289,7 +383,7 @@ def map_multivector(mv_name='X',blade_mask=np.ones(32)):
                         final_blade_name+=yielded_string
                 else:
                     final_blade_name = blade_name
-            param_i = mv_name+'_'+str(i)
+            param_i = mv_name+'_in_'+'%02d' % i
             if first_flag:
                 mapping_function += param_i + '*' + final_blade_name
                 first_flag = False
@@ -333,9 +427,13 @@ def process_output_body(output_text,inputs=[],outputs=[],intermediates=[],functi
         final_text = temp_val + '= np.zeros(32)\n' + final_text
         final_text = final_text.replace(pattern, temp_val+'[')
         for j in range(33):
-            pattern = input_name+'_'+str(32-j)
+            pattern = input_name+'_in_'+'%02d' % (32-j)
             replacement = input_name+'['+str(32-j)+']'
             final_text = final_text.replace(pattern, replacement)
+
+    for k,v in symbols_c2py.items():
+        final_text = final_text.replace(k, v)
+
     final_text = final_text + '\nreturn '
     n = 0
     for o in outputs:
@@ -431,6 +529,26 @@ class Algorithm:
             intermediates=self.intermediates,
             function_name=self.function_name)
         return self.python_text
+
+    def c_to_so(self):
+        """
+        Takes the c++ output of gaalop, adds math.h
+        Compiles it with gcc to a so
+        """
+        c_name = self.function_name + '.c'
+        so_name = self.function_name + '.so'
+        subprocess.run(['gcc', '-Wall', '-shared', '-o' , so_name , '-fPIC', c_name])
+
+    def wrap_so(self):
+        """
+        Takes the so
+        Wraps it in a python function
+        """
+        self.func = wrap_ctypes_func(self.function_name, self.inputs,
+                         self.outputs, self.intermediates,
+                         self.blade_mask_list)
+        return self.func
+
 
     def process_python_function(self):
         """
