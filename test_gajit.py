@@ -241,9 +241,9 @@ class TestCtypesWrapperExamples(unittest.TestCase):
         basic_map_test.c_to_so()
         fso = basic_map_test.wrap_so()
         res2 = fso(res.value)
-        np.testing.assert_almost_equal((res).value, res2)
+        np.testing.assert_almost_equal((res).value, res2, 5)
 
-    def test_basic_addition(self):
+    def test_basic_constant_addition(self):
         @gajit(mask_list=[np.ones(32)], ignore_cache=True)
         def basic_addition(A):
             C = 3.14159 + A
@@ -253,7 +253,25 @@ class TestCtypesWrapperExamples(unittest.TestCase):
         basic_addition.c_to_so()
         fso = basic_addition.wrap_so()
         res2 = fso(res.value)
-        np.testing.assert_almost_equal((3.14159 + res).value, res2)
+
+        print((3.14159 + res))
+        print(self.layout.MultiVector(value=res2))
+
+        np.testing.assert_almost_equal((3.14159 + res).value, res2, 5)
+
+    def test_basic_mv_addition(self):
+        @gajit(mask_list=[np.ones(32), self.layout.grade_mask(3)], ignore_cache=True)
+        def basic_mv_addition(A, D):
+            C = D + A
+            return C
+
+        A = self.layout.randomMV()
+        D = self.layout.randomMV()(3)
+        basic_mv_addition.c_to_so()
+        fso = basic_mv_addition.wrap_so()
+        res2 = fso(A.value, D.value)
+
+        np.testing.assert_almost_equal((A + D).value, res2, 5)
 
     def test_basic_reverse(self):
 
@@ -266,7 +284,7 @@ class TestCtypesWrapperExamples(unittest.TestCase):
         basic_reverse.c_to_so()
         fso = basic_reverse.wrap_so()
         res2 = fso(res.value)
-        np.testing.assert_almost_equal((~res).value, res2)
+        np.testing.assert_almost_equal((~res).value, res2, 5)
 
     def test_basic_combo(self):
 
@@ -285,9 +303,11 @@ class TestCtypesWrapperExamples(unittest.TestCase):
         R = self.layout.randomRotor()
         basic_combo.c_to_so()
         fso = basic_combo.wrap_so()
+
         res2 = fso(A.value, R.value)
         res = ((3.14 + R*A*~R)*(e1^e2^e3))|(e1^e2)
-        np.testing.assert_almost_equal(res.value, res2)
+
+        np.testing.assert_almost_equal(res.value, res2, 5)
 
 
 class TestBasicExamples(unittest.TestCase):
@@ -383,40 +403,51 @@ class TestTimingExamples(unittest.TestCase):
 
         #### A GENERAL EXAMPLE ####
 
-        @gajit(mask_list=[layout.grade_mask(1), layout.grade_mask(3)], verbose=1, ignore_cache=True)
-        def pp_algo_wrapped(P, C):
+        @gajit(mask_list=[layout.grade_mask(3), layout.grade_mask(1)], verbose=1, ignore_cache=True)
+        def pp_algo_wrapped(C, P):
             Cplane = C ^ einf
             Cd = C * (Cplane)
             L = (Cplane * P * Cplane) ^ Cd ^ einf
             pp = Cd ^ (L * e12345)
             return pp
 
-        def pp_algo(P, C):
+        def pp_algo(C, P):
             Cplane = C ^ einf
             Cd = C * (Cplane)
             L = (Cplane * P * Cplane) ^ Cd ^ einf
             pp = Cd ^ (L * e12345)
             return pp
+
+        pp_algo_wrapped.c_to_so()
+        fso = pp_algo_wrapped.wrap_so()
 
         for i in range(1000):
             P = random_conformal_point()
             C = random_circle()
 
-            np.testing.assert_almost_equal(pp_algo(P, C).value, pp_algo_wrapped(P, C).value)
+            np.testing.assert_almost_equal(pp_algo(C, P).value, pp_algo_wrapped(C, P).value, 5)
+            np.testing.assert_almost_equal(fso(C.value, P.value), pp_algo(C, P).value, 5)
 
         start_time = time.time()
         for i in range(10000):
-            pp_algo_wrapped(P, C)
+            pp_algo_wrapped(C, P)
         t_gaalop = time.time() - start_time
         print('GAJIT ALGO: ', t_gaalop)
 
         start_time = time.time()
         for i in range(10000):
-            pp_algo(P, C)
+            pp_algo(C, P)
         t_trad = time.time() - start_time
         print('TRADITIONAL: ', t_trad)
 
+        start_time = time.time()
+        for i in range(10000):
+            fso(C.value, P.value)
+        t_fso = time.time() - start_time
+        print('fso: ', t_fso)
+
         print('T/G: ', t_trad / t_gaalop)
+        print('T/fso: ', t_trad / t_fso)
 
 
 if __name__ == '__main__':
