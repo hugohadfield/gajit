@@ -3,7 +3,7 @@ import os
 os.environ['GAALOP_CLI_HOME'] = '/work/Gaalop/target/gaalop-1.0.0-bin'
 os.environ['GAALOP_ALGEBRA_HOME'] = '/work/gaalopinterface/gajit/algebra'
 
-from gajit import gajit
+from gajit import gajit, Algorithm
 
 import unittest
 
@@ -16,6 +16,144 @@ from clifford import Cl, conformalize
 
 class TestPaper(unittest.TestCase):
 
+    def test_ray_tracer(self):
+
+        layout_orig, blades_orig = Cl(3)
+        layout, blades, stuff = conformalize(layout_orig)
+        e12345 = blades['e12345']
+        einf=stuff['einf']
+
+        from clifford.tools.g3c import random_conformal_point, random_sphere
+
+        # Write the body of a function as a string here
+        body = """
+        R = *(A ^ C ^ einf);
+        PP = R ^ (*S);
+        hasIntersection = PP.PP; 
+        """
+
+        # Create a python function from that GAALOPScript function
+        raytrace = Algorithm(
+            inputs=['S', 'A', 'C'],
+            outputs=['hasIntersection'],
+            intermediates=['R', 'PP'],
+            body=body,
+            function_name="raytracer",
+            blade_mask_list=[layout.grade_mask(4),
+                             layout.grade_mask(1),
+                             layout.grade_mask(1)]
+        )
+
+        def clifford_raytrace(S,A,C):
+            PP = ((e12345 * (A ^ C ^ einf)) ^ (e12345 * S))
+            hasIntersection = (PP | PP)
+            return hasIntersection
+
+        @gajit([layout.grade_mask(4),layout.grade_mask(1),layout.grade_mask(1)])
+        def clifford_raytrace_gajit(S,A,C):
+            PP = ((e12345 * (A ^ C ^ einf)) ^ (e12345 * S))
+            hasIntersection = (PP | PP)
+            return hasIntersection
+
+        for i in range(1000):
+            A = random_conformal_point()
+            C = random_conformal_point()
+            S = random_sphere()
+
+            res = raytrace(S,A,C)
+            res2 = clifford_raytrace(S,A,C)
+            res3 = clifford_raytrace_gajit(S,A,C)
+            np.testing.assert_almost_equal(res2[0], res[0])
+            np.testing.assert_almost_equal(res3[0], res[0])
+
+        nruns = 10000
+
+        start_time = time.time()
+        for i in range(nruns):
+            clifford_raytrace(S,A,C)
+        t_normal = time.time() - start_time
+        print('CLIFFORD: ', (10**6)*t_normal/nruns)
+
+        start_time = time.time()
+        for i in range(10000):
+            raytrace(S,A,C)
+        t_hand = time.time() - start_time
+        print('GAALOPScript: ', (10**6)*t_hand/nruns)
+
+        start_time = time.time()
+        for i in range(10000):
+            clifford_raytrace_gajit(S, A, C)
+        t_hand = time.time() - start_time
+        print('GAJIT: ', (10 ** 6) * t_hand / nruns)
+
+    def test_ray_hit_circle(self):
+        layout_orig, blades_orig = Cl(3)
+        layout, blades, stuff = conformalize(layout_orig)
+        e12345 = blades['e12345']
+        einf = stuff['einf']
+
+        from clifford.tools.g3c import random_line, random_circle
+
+        omt_func = layout.omt_func
+        imt_func = layout.imt_func
+
+        @gajit([layout.grade_mask(2), layout.grade_mask(2)])
+        def dual_line_dual_circle_hit_gajit(dl, dc):
+            t = (dc^dl)
+            out = t|t
+            return out
+
+        def dual_line_dual_circle_hit(dl, dc):
+            t = (dc^dl)
+            out = t|t
+            return out[0]
+
+        def dual_line_dual_circle_hit_hand(dl, dc):
+            t = omt_func(dc, dl)
+            out = imt_func(t, t)
+            return out[0]
+
+        for i in range(1000):
+            L = random_line()
+            C = random_circle()
+
+            dl = e12345 * L
+            dc = e12345 * C
+
+            res = dual_line_dual_circle_hit_gajit.func(dl.value, dc.value)[0]
+            res2 = dual_line_dual_circle_hit(dl, dc)
+            res3= dual_line_dual_circle_hit_hand(dl.value, dc.value)
+
+            np.testing.assert_almost_equal(res, res2)
+            np.testing.assert_almost_equal(res, res3)
+
+        nruns = 10000
+
+        L = random_line()
+        C = random_circle()
+
+        dl = e12345 * L
+        dc = e12345 * C
+
+        start_time = time.time()
+        for i in range(nruns):
+            dual_line_dual_circle_hit(dl, dc)
+        t_normal = time.time() - start_time
+        print('UNOPTIMISED: ', (10 ** 6) * t_normal / nruns)
+
+        start_time = time.time()
+        for i in range(nruns):
+            dual_line_dual_circle_hit_gajit.func(dl.value, dc.value)[0]
+        t_gajit = time.time() - start_time
+        print('GAJIT: ', (10 ** 6) * t_gajit / nruns)
+
+        start_time = time.time()
+        for i in range(nruns):
+            dual_line_dual_circle_hit_hand(dl.value, dc.value)
+        t_hand = time.time() - start_time
+        print('HAND: ', (10 ** 6) * t_gajit / nruns)
+
+
     def test_example_one(self):
 
         layout_orig, blades_orig = Cl(3)
@@ -26,12 +164,17 @@ class TestPaper(unittest.TestCase):
         e1 = blades['e1']
         e2 = blades['e2']
         e3 = blades['e3']
-        e123 = blades['e123']
+        e4 = blades['e3']
+        e5 = blades['e3']
+        e12345 = blades['e12345']
         e12 = blades['e12']
+
+        einf = stuff['einf']
+        e0 = stuff['eo']
 
         def example_one(X, R):
             Y = 1 + (R * X * ~R)
-            Ystar = Y * (e1 ^ e2 ^ e3)
+            Ystar = Y * (e1 ^ e2 ^ e3 ^ einf ^ e0)
             F = Ystar | (e1 ^ e2)
             return F
 
@@ -41,12 +184,12 @@ class TestPaper(unittest.TestCase):
         rev = layout.adjoint_func
 
         e12_value = (e1 ^ e2).value
-        e123_value = (e1 ^ e2 ^ e3).value
+        e12345_value = (e1 ^ e2 ^ e3 ^ einf ^ e0).value
 
         def example_one_faster(X, R):
             Y = gp(gp(R, X), rev(R))
             Y[0] += 1
-            Ystar = gp(Y, e123_value)
+            Ystar = gp(Y, e12345_value)
             F = ip(Ystar, e12_value)
             return F
 
@@ -54,14 +197,14 @@ class TestPaper(unittest.TestCase):
         def example_one_faster_jit(X, R):
             Y = gp(gp(R, X), rev(R))
             Y[0] += 1
-            Ystar = gp(Y, e123_value)
+            Ystar = gp(Y, e12345_value)
             F = ip(Ystar, e12_value)
             return F
 
         @gajit(mask_list=[layout.grade_mask(1), layout.rotor_mask], verbose=1, ignore_cache=True)
         def example_one_gajit(X, R):
             Y = 1 + (R * X * (~R))
-            D = Y * (e1 ^ e2 ^ e3)
+            D = Y * (e1 ^ e2 ^ e3 ^ einf ^ e0)
             F = D | (e1 ^ e2)
             return F
 
@@ -93,30 +236,40 @@ class TestPaper(unittest.TestCase):
                     print('\n', flush=True)
                     np.testing.assert_almost_equal(test_array[j, :], true_array[j, :])
 
+        nruns = 10000
 
         start_time = time.time()
-        for i in range(10000):
+        for i in range(nruns):
             example_one(X, R)
         t_normal = time.time() - start_time
-        print('UNOPTIMISED: ', t_normal)
+        print('UNOPTIMISED: ', (10**6)*t_normal/nruns)
 
         start_time = time.time()
         for i in range(10000):
             example_one_faster(X.value, R.value)
         t_hand = time.time() - start_time
-        print('HAND: ', t_hand)
+        print('HAND: ', (10**6)*t_hand/nruns)
 
         start_time = time.time()
         for i in range(10000):
             example_one_faster_jit(X.value, R.value)
         t_jit = time.time() - start_time
-        print('HAND + JIT: ', t_jit)
+        print('HAND + JIT: ', (10**6)*t_jit/nruns)
 
         start_time = time.time()
         for i in range(10000):
             example_one_gajit(X, R)
         t_gajit = time.time() - start_time
-        print('GAJIT: ', t_gajit)
+        print('GAJIT: ', (10**6)*t_gajit/nruns)
+
+        example_one_gajit.c_to_so()
+        fso = example_one_gajit.wrap_so()
+
+        start_time = time.time()
+        for i in range(10000):
+            example_one_gajit(X, R)
+        t_fso = time.time() - start_time
+        print('fso: ', (10**6)*t_fso/nruns)
 
     def test_rotor_between_lines(self):
 
@@ -165,6 +318,9 @@ class TestPaper(unittest.TestCase):
             R = D * (1 + M*L)
             V = R / abs(R)
             return V
+
+        example_rotor_lines_gajit.c_to_so()
+        fso = example_rotor_lines_gajit.wrap_so()
 
         ## ENSURE ALL THE ALGORITHMS GIVE THE SAME ANSWER
         L = random_line()
@@ -216,9 +372,10 @@ class TestPaper(unittest.TestCase):
 
         start_time = time.time()
         for i in range(10000):
-            example_rotor_lines_gajit(L, M)
+            fso(L.value, M.value)
         t_gajit = time.time() - start_time
         print('GAJIT: ', t_gajit)
+
 
 
 
@@ -418,15 +575,11 @@ class TestTimingExamples(unittest.TestCase):
             pp = Cd ^ (L * e12345)
             return pp
 
-        pp_algo_wrapped.c_to_so()
-        fso = pp_algo_wrapped.wrap_so()
-
         for i in range(1000):
             P = random_conformal_point()
             C = random_circle()
 
             np.testing.assert_almost_equal(pp_algo(C, P).value, pp_algo_wrapped(C, P).value, 5)
-            np.testing.assert_almost_equal(fso(C.value, P.value), pp_algo(C, P).value, 5)
 
         start_time = time.time()
         for i in range(10000):
@@ -439,6 +592,14 @@ class TestTimingExamples(unittest.TestCase):
             pp_algo(C, P)
         t_trad = time.time() - start_time
         print('TRADITIONAL: ', t_trad)
+
+
+        pp_algo_wrapped.c_to_so()
+        fso = pp_algo_wrapped.wrap_so()
+        for i in range(1000):
+            P = random_conformal_point()
+            C = random_circle()
+            np.testing.assert_almost_equal(fso(C.value, P.value), pp_algo(C, P).value, 5)
 
         start_time = time.time()
         for i in range(10000):

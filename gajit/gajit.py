@@ -13,6 +13,11 @@ from pathlib import Path
 import subprocess
 import inspect
 
+try:
+    from .galgebra_converter import galgebra_function
+except:
+    pass
+
 
 # USEFUL DEFINITIONS
 e0 = eo
@@ -27,12 +32,10 @@ symbols_c2py = {'sqrtf':'np.sqrt',
                 }
 
 
-def py2gaalop(python_script):
+def process_calling_function(python_script):
     """
-    This transpiles a python function to a gaalop compatible CLUSCRIPT
-    This supports a very minimal subset of python, no flow control etc
+    Takes a python function and extract the inputs outputs and name
     """
-    # Get rid of front and back whitespace
     cleaned_script = python_script.strip()
 
     # Extract the ouputs
@@ -48,6 +51,16 @@ def py2gaalop(python_script):
     function_name = function_def.split('(', 1)[0].strip()
     argument_string = function_def.split('(', 1)[1].split(')', 1)[0]
     inputs = [a.strip() for a in argument_string.split(',')]
+
+    return inputs, outputs, function_name, cleaned_script
+
+
+def py2gaalop(python_script):
+    """
+    This transpiles a python function to a gaalop compatible CLUSCRIPT
+    This supports a very minimal subset of python, no flow control etc
+    """
+    inputs, outputs, function_name, cleaned_script = process_calling_function(python_script)
 
     # Run the conversion
     gaalop_script = cleaned_script.strip()
@@ -75,24 +88,39 @@ def py2gaalop(python_script):
     return gaalop_script, inputs, outputs, intermediates, function_name
 
 
-def py2Algorithm(python_function, mask_list=None):
-    gaalop_script, inputs, outputs, intermediates, function_name = py2gaalop(python_function)
-    return Algorithm(
-        body=gaalop_script,
-        inputs=inputs,
-        outputs=outputs,
-        blade_mask_list=mask_list,
-        function_name=function_name,
-        intermediates=intermediates)
+def py2Algorithm(python_function, mask_list=None, galgebra=False):
+    if not galgebra:
+        gaalop_script, inputs, outputs, intermediates, function_name = py2gaalop(python_function)
+        return Algorithm(
+            body=gaalop_script,
+            inputs=inputs,
+            outputs=outputs,
+            blade_mask_list=mask_list,
+            function_name=function_name,
+            intermediates=intermediates)
+    else:
+        inputs, outputs, function_name, _ = process_calling_function(python_function)
+        alg = Algorithm()
+        alg.function_name = function_name
+        alg.python_text = galgebra_function(python_function, inputs, outputs, mask_list, function_name)
+        alg.save_python()
+        alg.process_python_function()
+        alg._compiled = True
+        return alg
 
 
-def gajit(mask_list=None, verbose=0,  cache_python=True, ignore_cache=False):
-    def gaalop_wrapper(func):
-        python_function = inspect.getsource(func)
-        algo = py2Algorithm(python_function, mask_list=mask_list)
-        algo.compile(verbose=verbose, cache_python=cache_python, ignore_cache=ignore_cache)
-        return algo
-
+def gajit(mask_list=None, verbose=0,  cache_python=True, ignore_cache=False, galgebra=False):
+    if not galgebra:
+        def gaalop_wrapper(func):
+            python_function = inspect.getsource(func)
+            algo = py2Algorithm(python_function, mask_list=mask_list)
+            algo.compile(verbose=verbose, cache_python=cache_python, ignore_cache=ignore_cache)
+            return algo
+    else:
+        def gaalop_wrapper(func):
+            python_function = inspect.getsource(func)
+            algo = py2Algorithm(python_function, mask_list=mask_list, galgebra=True)
+            return algo
     return gaalop_wrapper
 
 
@@ -558,7 +586,7 @@ class Algorithm:
         """
         c_name = self.function_name + '.c'
         so_name = self.function_name + '.so'
-        subprocess.run(['gcc', '-Wall', '-shared', '-o' , so_name , '-fPIC', c_name])
+        subprocess.run(['gcc', '-Wall', '-O3', '-shared', '-o', so_name, '-fPIC', c_name])
 
     def wrap_so(self):
         """
@@ -568,6 +596,7 @@ class Algorithm:
         self.func = wrap_ctypes_func(self.function_name, self.inputs,
                          self.outputs, self.intermediates,
                          self.blade_mask_list)
+        self._compiled = True
         return self.func
 
 

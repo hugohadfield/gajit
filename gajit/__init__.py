@@ -1,1 +1,1 @@
-from .gajit import gajit
+from .gajit import gajit, Algorithm
