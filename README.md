@@ -10,7 +10,7 @@ The package comes in the form of a decorator that can be applied to normal funct
 from gajit import *
 from clifford.g3c import *
 
-@gajit(mask_list=[GradeMasks.onevectormask.value, GradeMasks.threevectormask.value], verbose=1)
+@gajit(mask_list=[layout.grade_mask(1), layout.grade_mask(3)], verbose=1)
 def pp_algo_wrapped(P, C):
     Cplane = C ^ einf
     Cd = C * (Cplane)
