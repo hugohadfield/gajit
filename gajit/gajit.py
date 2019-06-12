@@ -7,6 +7,7 @@ import re
 import time
 import numba
 import ctypes as ct
+from .regex_process import process_to_symbols
 
 from pathlib import Path
 
@@ -476,6 +477,7 @@ def process_output_body(output_text,inputs=[],outputs=[],intermediates=[],functi
     final_text = final_signature + final_text
     final_text = final_text.replace('\n', '\n    ')
     final_text = '@numba.njit\n' + final_text
+    final_text = process_to_symbols(final_text, inputs, intermediates, outputs)
     return final_text
 
 
