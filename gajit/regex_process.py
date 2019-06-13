@@ -43,29 +43,32 @@ def process_to_symbols(text, inputs, intermediates, outputs):
 
     return common_subexpression_elimination(text)
 
-    #return text
-
 
 def common_subexpression_elimination(text):
 
     # Symbol * Symbol
     # [A-Za-z]\w+\s\*\s[A-Za-z]\w+(?!\.)
     reg_finder = "[A-Za-z]\w+\s\*\s[A-Za-z]\w+(?!\.)"
-    matches = set(re.findall(reg_finder, text))
-    for m in matches:
+    text2 = text + ' '
+
+    # Find all matching symbols
+    matches = list(set(re.findall(reg_finder, text2)))
+
+    # Find all associated replacements
+    replist = ["__".join(("".join(m.split())).split('*')) for m in matches]
+
+    for m, rep in zip(matches, replist):
         # Generate a replacement
-        opm = "__".join(("".join(m.split())).split('*'))
         # Find first usage
-        x = text.find(m)
-        for i in range(len(text)):
+        x = text2.find(m)
+        # Step back to the start of the line
+        for i in range(len(text2)):
             ind = x - i
-            if text[ind] == '\n':
+            if text2[ind] == '\n':
                 ind = ind + 1
                 break
-        text = text[:ind] + '    ' + opm + ' = ' + m + '\n' + text[ind:].replace(m,opm)
-    return text
-    # Symbol * (-Symbol)
-    # [A-Za-z]\w+\s\*\s[A-Za-z]\w+
+        text2 = text2[:ind] + '    ' + rep + ' = ' + m + '\n' + text2[ind:].replace(m,rep)
+    return text2
 
 
 if __name__ == '__main__':

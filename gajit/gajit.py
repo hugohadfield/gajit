@@ -588,6 +588,11 @@ class Algorithm:
         """
         c_name = self.function_name + '.c'
         so_name = self.function_name + '.so'
+        with open(c_name, 'r+') as f:
+            content = f.read()
+            f.seek(0, 0)
+            f.write('#include <math.h>'.rstrip('\r\n') + '\n' + content)
+
         subprocess.run(['gcc', '-Wall', '-O3', '-shared', '-o', so_name, '-fPIC', c_name])
 
     def wrap_so(self):

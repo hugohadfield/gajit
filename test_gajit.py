@@ -291,12 +291,11 @@ class TestPaper(unittest.TestCase):
 
         def example_rotor_lines(L, M):
             K = 2 + M * L + L * M
-            A = -(K | e0) * einf
-            C = 2 * (K - A)
-            D = 1 - (A / C)
-            R = D * (1 + M*L)
-            V = R / abs(R)
-            return V
+            T = -(K | e0) * einf
+            P = 2*(K - T)
+            Y = 1 - (T / P)
+            R = Y * (1 + M * L)
+            return R
 
         gp = layout.gmt_func
         op = layout.omt_func
@@ -309,36 +308,32 @@ class TestPaper(unittest.TestCase):
         def example_rotor_lines_faster(X, R):
             return val_rotor_between_lines(X, R)
 
-        @gajit(mask_list=[layout.grade_mask(3), layout.grade_mask(3)], verbose=1, ignore_cache=True)
+        @gajit(mask_list=[layout.grade_mask(3), layout.grade_mask(3)], verbose=2, ignore_cache=True)
         def example_rotor_lines_gajit(L, M):
             K = 2 + M * L + L * M
-            A = -(K | e0) * einf
-            C = 2 * (K - A)
-            D = 1 - (A / C)
-            R = D * (1 + M*L)
-            V = R / abs(R)
-            return V
-
-        example_rotor_lines_gajit.c_to_so()
-        fso = example_rotor_lines_gajit.wrap_so()
+            T = -(K | e0) * einf
+            P = 2*(K - T)
+            Y = 1 - (T / P)
+            R = Y * (1 + M * L)
+            return R
 
         ## ENSURE ALL THE ALGORITHMS GIVE THE SAME ANSWER
         L = random_line()
         M = random_line()
         true = example_rotor_lines(L, M)
-        print(true)
-        print(example_rotor_lines_gajit(L, M))
+        print(true.normal())
+        print(example_rotor_lines_gajit(L, M).normal())
         for i in range(100):
             L = random_line()
             M = random_line()
 
-            true = example_rotor_lines(L,M)
+            true = example_rotor_lines(L,M).normal()
             true_array = np.array([true.value, true.value, true.value])
             test_array = np.zeros((3,32))
 
             test_array[0, :] = example_rotor_lines_faster(L.value, M.value)
             test_array[1, :] = val_rotor_between_objects_root(L.value, M.value)
-            test_array[2, :] = example_rotor_lines_gajit(L,M).value
+            test_array[2, :] = val_normalised(example_rotor_lines_gajit(L,M).value)
 
             for j in range(3):
                 try:
@@ -354,7 +349,7 @@ class TestPaper(unittest.TestCase):
 
         start_time = time.time()
         for i in range(10000):
-            example_rotor_lines(L, M)
+            val_normalised(example_rotor_lines(L, M).value)
         t_normal = time.time() - start_time
         print('UNOPTIMISED: ', t_normal)
 
@@ -372,11 +367,24 @@ class TestPaper(unittest.TestCase):
 
         start_time = time.time()
         for i in range(10000):
-            fso(L.value, M.value)
+            val_normalised(example_rotor_lines_gajit(L, M).value)
         t_gajit = time.time() - start_time
-        print('GAJIT: ', t_gajit)
+        print('GAJIT LINES: ', t_gajit)
 
+        example_rotor_lines_gajit.c_to_so()
+        fso = example_rotor_lines_gajit.wrap_so()
 
+        L = random_line()
+        M = random_line()
+        fsoval = val_normalised(fso(L.value, M.value))
+        refval = val_normalised(example_rotor_lines(L, M).value)
+        np.testing.assert_almost_equal(fsoval, refval, 3)
+
+        start_time = time.time()
+        for i in range(10000):
+            val_normalised(fso(L.value, M.value))
+        t_gajit = time.time() - start_time
+        print('GAJIT FSO: ', t_gajit)
 
 
 class TestCtypesWrapperExamples(unittest.TestCase):
@@ -465,6 +473,26 @@ class TestCtypesWrapperExamples(unittest.TestCase):
         res = ((3.14 + R*A*~R)*(e1^e2^e3))|(e1^e2)
 
         np.testing.assert_almost_equal(res.value, res2, 5)
+
+    def test_mathh(self):
+
+        e1 = self.blades['e1']
+        e2 = self.blades['e2']
+        e3 = self.blades['e3']
+
+        @gajit(mask_list=[self.layout.rotor_mask], ignore_cache=True)
+        def basic_norm(R):
+            C = R/abs(R)
+            return C
+
+        R = self.layout.randomRotor()
+        basic_norm.c_to_so()
+        fso = basic_norm.wrap_so()
+
+        res2 = fso(2*R.value)
+        res = R.value
+
+        np.testing.assert_almost_equal(res, res2, 2)
 
 
 class TestBasicExamples(unittest.TestCase):
@@ -599,7 +627,7 @@ class TestTimingExamples(unittest.TestCase):
         for i in range(1000):
             P = random_conformal_point()
             C = random_circle()
-            np.testing.assert_almost_equal(fso(C.value, P.value), pp_algo(C, P).value, 5)
+            np.testing.assert_almost_equal(fso(C.value, P.value), pp_algo(C, P).value, 3)
 
         start_time = time.time()
         for i in range(10000):
